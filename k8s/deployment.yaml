@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keyvault-demo
+  namespace: keyvault-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keyvault-demo
+  template:
+    metadata:
+      labels:
+        app: keyvault-demo
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: keyvault-demo-sa
+      containers:
+        - name: app
+          image: acrkvdemo001.azurecr.io/keyvault-demo:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: KEY_VAULT_URL
+              value: "https://kv-demo-001.vault.azure.net/"
+            - name: COSMOS_ENDPOINT_SECRET_NAME
+              value: "cosmos-endpoint"
+            - name: COSMOS_KEY_SECRET_NAME
+              value: "cosmos-key"
+            - name: COSMOS_DATABASE_NAME
+              value: "demoapp"
+            - name: COSMOS_CONTAINER_NAME
+              value: "notes"
+            - name: CORS_ORIGINS
+              value: "http://localhost:3000"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
