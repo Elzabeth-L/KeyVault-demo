@@ -1,12 +1,12 @@
 # Azure Portal GUI Deployment Guide
 
-This guide walks through deploying the demo app mostly through the Azure Portal GUI.
+This guide walks through deploying the app mostly through the Azure Portal GUI.
 
 The app architecture is:
 
 - Next.js frontend and FastAPI backend in one Docker image
-- Azure Cosmos DB for NoSQL stores notes
-- Azure Key Vault stores Cosmos DB endpoint and key
+- Azure Cosmos DB for NoSQL stores users and notes
+- Azure Key Vault stores Cosmos DB endpoint, Cosmos DB key, and the JWT signing secret
 - AKS uses OIDC issuer and Microsoft Entra Workload ID
 - A Kubernetes service account federates to a user-assigned managed identity
 - The pod reads Key Vault secrets without storing Azure credentials in Kubernetes
@@ -23,10 +23,11 @@ Use names like these:
 
 | Item | Example |
 | --- | --- |
-| Subscription | Your company/demo subscription |
+| Subscription | Your company subscription |
 | Resource group | `rg-aks-keyvault-demo` |
 | Region | `East US` |
-| ACR | `acrkvdemo001` |
+| Docker Hub namespace | `elzabeth03` |
+| Docker image | `elzabeth03/keyvault-demo:1.0.0` |
 | AKS | `aks-keyvault-demo` |
 | Key Vault | `kv-demo-001` |
 | Cosmos DB account | `cosmos-kv-demo-001` |
@@ -34,14 +35,19 @@ Use names like these:
 | Kubernetes namespace | `keyvault-demo` |
 | Kubernetes service account | `keyvault-demo-sa` |
 | Cosmos database | `demoapp` |
-| Cosmos container | `notes` |
-| Cosmos partition key | `/owner` |
+| Cosmos notes container | `notes` |
+| Notes partition key | `/owner` |
+| Cosmos users container | `users` |
+| Users partition key | `/email` |
+| Key Vault secret | `cosmos-endpoint` |
+| Key Vault secret | `cosmos-key` |
+| Key Vault secret | `auth-jwt-secret` |
 | Virtual network, optional but recommended | `vnet-aks-keyvault-demo` |
 | AKS node subnet, optional but recommended | `snet-aks-nodes` |
 | Service CIDR | `10.2.0.0/16` |
 | DNS service IP | `10.2.0.10` |
 
-Use globally unique names for ACR, Key Vault, and Cosmos DB.
+Use globally unique names for Key Vault and Cosmos DB.
 
 ## Required IAM And Access Summary
 
@@ -63,8 +69,8 @@ Recommended for a demo subscription or demo resource group:
 
 Why:
 
-- `Contributor` lets you create AKS, ACR, Cosmos DB, Key Vault, VNet, and managed identity.
-- `User Access Administrator` lets you create role assignments, such as Key Vault access and ACR pull access.
+- `Contributor` lets you create AKS, Cosmos DB, Key Vault, VNet, and managed identity.
+- `User Access Administrator` lets you create role assignments, such as Key Vault access.
 
 If your company does not allow `User Access Administrator`, ask your Azure admin to perform the role assignments listed below.
 
@@ -72,10 +78,9 @@ If your company does not allow `User Access Administrator`, ask your Azure admin
 
 | Identity | Role | Scope | Why |
 | --- | --- | --- | --- |
-| User-assigned managed identity `id-keyvault-demo` | `Key Vault Secrets User` | Key Vault | Lets the pod read `cosmos-endpoint` and `cosmos-key` |
-| AKS kubelet identity | `AcrPull` or equivalent repository reader role | Azure Container Registry | Lets AKS nodes pull the app image |
+| User-assigned managed identity `id-keyvault-demo` | `Key Vault Secrets User` | Key Vault | Lets the pod read `cosmos-endpoint`, `cosmos-key`, and `auth-jwt-secret` |
 
-If you attach ACR during AKS creation, Azure normally creates the ACR pull role assignment automatically. If image pull fails later, verify this role assignment manually.
+Docker Hub public images do not require Azure role assignments for image pull. If you make the Docker Hub repository private later, create a Kubernetes image pull secret and reference it in the deployment.
 
 ### Identities That Will Exist
 
@@ -95,7 +100,6 @@ Even for a demo, this is the better default because:
 
 - Key Vault can be reached through Private Link instead of the public internet.
 - Cosmos DB can be reached through Private Link instead of the public internet.
-- ACR can be reached privately by AKS when using the Premium SKU.
 - Your company can review and approve known IP ranges.
 - The demo is closer to a real enterprise deployment.
 
@@ -113,7 +117,7 @@ Important:
 
 - The Kubernetes service CIDR must not overlap with the VNet address space.
 - The pod CIDR, if shown, must not overlap with the VNet address space.
-- Key Vault, Cosmos DB, and ACR private endpoints should use the private endpoint subnet.
+- Key Vault and Cosmos DB private endpoints should use the private endpoint subnet.
 - Do not place private endpoints in the AKS node subnet.
 - Public access should be disabled for Key Vault and Cosmos DB after private endpoints are configured.
 
@@ -161,47 +165,9 @@ If your subscription or company policy does not allow private endpoints, you can
 You will select:
 
 - `snet-aks-nodes` during AKS creation.
-- `snet-private-endpoints` when creating private endpoints for Key Vault, Cosmos DB, and ACR.
+- `snet-private-endpoints` when creating private endpoints for Key Vault and Cosmos DB.
 
-## 2. Create Azure Container Registry
-
-1. Search for `Container registries`.
-2. Select `Create`.
-3. Basics tab:
-   - Subscription: same subscription
-   - Resource group: `rg-aks-keyvault-demo`
-   - Registry name: globally unique name, for example `acrkvdemo001`
-   - Region: same region as the resource group
-   - SKU: `Premium`
-4. Networking tab:
-   - Connectivity method: `Private access`
-   - Select `Create a private endpoint`
-   - Private endpoint name: `pe-acr-kvdemo`
-   - Registry subresource: `registry`
-   - Virtual network: `vnet-aks-keyvault-demo`
-   - Subnet: `snet-private-endpoints`
-   - Integrate with private DNS zone: `Yes`
-   - Private DNS zone: create or use `privatelink.azurecr.io`
-5. Encryption tab:
-   - Leave default Microsoft-managed key
-6. Select `Review + create`.
-7. Select `Create`.
-
-After creation:
-
-1. Open the container registry.
-2. Go to `Properties`.
-3. Copy `Login server`, for example `acrkvdemo001.azurecr.io`.
-
-You will use this value in `k8s/deployment.yaml`.
-
-Security note:
-
-- ACR private endpoint requires Premium SKU.
-- If your company does not permit Premium for demos, use public network access with selected trusted IP ranges only.
-- Keep `Admin user` disabled.
-
-## 3. Create Cosmos DB For NoSQL
+## 2. Create Cosmos DB For NoSQL
 
 1. Search for `Azure Cosmos DB`.
 2. Select `Create`.
@@ -235,7 +201,7 @@ Security note:
 9. Select `Review + create`.
 10. Select `Create`.
 
-Create database and container:
+Create database and containers:
 
 1. Open the Cosmos DB account.
 2. Go to `Data Explorer`.
@@ -249,6 +215,16 @@ Create database and container:
    - Select manual throughput
    - Enter `400` RU/s
 8. Select `OK`.
+9. Select `New Container` again.
+10. Database id:
+   - Select `Use existing`
+   - Choose `demoapp`
+11. Container id: `users`.
+12. Partition key: `/email`.
+13. Throughput:
+   - Select manual throughput
+   - Enter `400` RU/s
+14. Select `OK`.
 
 Copy Cosmos values:
 
@@ -269,7 +245,7 @@ If the portal does not let you disable public access until after creation:
 
 Avoid selecting `All networks`. If you must use public access temporarily, restrict it to named IP ranges and remove those rules after testing.
 
-## 4. Create Key Vault
+## 3. Create Key Vault
 
 1. Search for `Key vaults`.
 2. Select `Create`.
@@ -329,7 +305,7 @@ Temporary setup option:
 1. Open the Key Vault.
 2. Go to `Networking`.
 3. Temporarily allow your current public IP only.
-4. Add the two secrets.
+4. Add the required secrets.
 5. Return to `Networking`.
 6. Set public access back to `Disabled`.
 7. Save.
@@ -352,8 +328,29 @@ Then create secrets:
    - Secret value: Cosmos DB `PRIMARY KEY`
    - Enabled: `Yes`
 8. Select `Create`.
+9. Create a JWT signing secret value. Use a strong random value. From PowerShell, you can generate one with:
 
-## 5. Create User-Assigned Managed Identity
+```powershell
+$JWT_SECRET_BYTES=New-Object byte[] 64
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($JWT_SECRET_BYTES)
+$JWT_SECRET=[Convert]::ToBase64String($JWT_SECRET_BYTES)
+$JWT_SECRET
+```
+
+10. Select `Generate/Import` again.
+11. Create the third secret:
+   - Upload options: `Manual`
+   - Name: `auth-jwt-secret`
+   - Secret value: the generated `$JWT_SECRET` value
+   - Enabled: `Yes`
+12. Select `Create`.
+
+Important:
+
+- Create `auth-jwt-secret` before deploying the application.
+- Keep raw values out of Kubernetes manifests. Kubernetes only receives the secret names.
+
+## 4. Create User-Assigned Managed Identity
 
 1. Search for `Managed identities`.
 2. Select `Create`.
@@ -377,7 +374,7 @@ You need:
 - `Client ID` for `k8s/service-account.yaml`
 - `Object (principal) ID` for Key Vault role assignment
 
-## 6. Grant Managed Identity Access To Key Vault
+## 5. Grant Managed Identity Access To Key Vault
 
 1. Open the Key Vault.
 2. Go to `Access control (IAM)`.
@@ -404,7 +401,7 @@ Do not select the AKS agent pool identity, such as `aks-keyvault-demo-agentpool`
 
 Important: `Key Vault Contributor` is not enough for reading secret values. The pod identity needs the data-plane role `Key Vault Secrets User`.
 
-## 7. Create AKS Cluster With OIDC And Workload Identity
+## 6. Create AKS Cluster With OIDC And Workload Identity
 
 1. Search for `Kubernetes services`.
 2. Select `Create` > `Create a Kubernetes cluster`.
@@ -434,7 +431,7 @@ Important: `Key Vault Contributor` is not enough for reading secret values. The 
    - Network policy: `None` for demo
    - DNS name prefix: leave generated or set a simple prefix
 7. Integrations tab:
-   - Container registry: select your ACR, for example `acrkvdemo001`
+   - Container registry: leave unselected when using the public Docker Hub image
 8. Monitoring tab:
    - Container insights: optional for demo
 9. Advanced tab:
@@ -453,32 +450,7 @@ After creation:
 
 You need the OIDC issuer URL for the federated credential.
 
-### Verify ACR Pull IAM
-
-If you selected ACR during AKS creation, Azure should grant the AKS kubelet identity pull access to ACR.
-
-Verify it:
-
-1. Open your Container Registry.
-2. Go to `Access control (IAM)`.
-3. Select `Role assignments`.
-4. Search for `AcrPull`.
-5. Confirm the AKS kubelet identity or AKS managed identity has pull access.
-
-If it is missing:
-
-1. Open Container Registry.
-2. Go to `Access control (IAM)`.
-3. Select `Add` > `Add role assignment`.
-4. Role: `AcrPull`.
-5. Members:
-   - Assign access to: `Managed identity`
-   - Select the AKS kubelet identity
-6. Select `Review + assign`.
-
-The kubelet identity name is usually visible from the AKS cluster under `Properties` or the managed resource group that Azure creates for AKS.
-
-## 8. Create Federated Credential On Managed Identity
+## 7. Create Federated Credential On Managed Identity
 
 1. Open the managed identity `id-keyvault-demo`.
 2. Go to `Settings` > `Federated credentials`.
@@ -501,7 +473,7 @@ This creates trust between:
 
 You do not need to manually create an App Registration for this demo. A user-assigned managed identity plus federated credential is the cleaner path.
 
-## 9. Build And Push Docker Image
+## 8. Build And Push Docker Image
 
 This part is usually not practical through only the Azure Portal UI. Use one of these options.
 
@@ -510,13 +482,12 @@ This part is usually not practical through only the Azure Portal UI. Use one of 
 Run from the project root:
 
 ```powershell
-docker build -t keyvault-demo:1.0.0 .
-docker tag keyvault-demo:1.0.0 <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
-az acr login --name <ACR_NAME>
-docker push <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
+docker login
+docker build -t elzabeth03/keyvault-demo:1.0.0 .
+docker push elzabeth03/keyvault-demo:1.0.0
 ```
 
-This works only if your machine can reach ACR. With ACR private access only, your machine must be on the VNet path, for example through VPN, ExpressRoute, or a jumpbox.
+The Docker Hub repository must exist or your Docker Hub account must be allowed to create it on first push.
 
 ### Option B: Use Azure Cloud Shell
 
@@ -526,21 +497,9 @@ This works only if your machine can reach ACR. With ACR private access only, you
 4. Upload the project files or clone your repo.
 5. Run the same Docker build and push commands.
 
-Important: Cloud Shell may not have network access to your private ACR endpoint. If ACR public access is disabled, prefer a VM or self-hosted build agent inside `vnet-aks-keyvault-demo`.
+Important: Docker Hub login from Cloud Shell may require a Docker Hub access token instead of your account password.
 
-### Option C: Use ACR Tasks
-
-If your code is in GitHub or Azure Repos:
-
-1. Open Container Registry.
-2. Go to `Tasks`.
-3. Create a quick task or task from source.
-4. Point it to the repo and Dockerfile.
-5. Build image name: `keyvault-demo:1.0.0`.
-
-If ACR is private-only, confirm your chosen build method can push to the registry. Private ACR is secure, but it also means builds must run from an allowed network path.
-
-## 10. Update Kubernetes Manifests
+## 9. Update Kubernetes Manifests
 
 Edit `k8s/service-account.yaml`:
 
@@ -559,21 +518,25 @@ Replace `<MANAGED_IDENTITY_CLIENT_ID>` with the Client ID from `id-keyvault-demo
 Edit `k8s/deployment.yaml`:
 
 ```yaml
-image: <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
+image: elzabeth03/keyvault-demo:1.0.0
 ```
 
-Replace `<ACR_LOGIN_SERVER>` with your ACR login server.
+If you publish a different tag, update this image value before deploying.
 
 Also update:
 
 ```yaml
 - name: KEY_VAULT_URL
   value: "https://<KEY_VAULT_NAME>.vault.azure.net/"
+- name: USERS_CONTAINER_NAME
+  value: "users"
+- name: JWT_SECRET_NAME
+  value: "auth-jwt-secret"
 ```
 
 Replace `<KEY_VAULT_NAME>` with your Key Vault name.
 
-## 11. Deploy Manifests To AKS
+## 10. Deploy Manifests To AKS
 
 The Azure Portal can show AKS resources, but applying YAML is usually done through Cloud Shell or local `kubectl`.
 
@@ -620,7 +583,7 @@ The current manifest exposes a public LoadBalancer because it is easy to demonst
 - internal load balancer
 - company-approved ingress gateway
 
-## 12. Verify In Azure Portal
+## 11. Verify In Azure Portal
 
 ### Verify AKS Workload Identity
 
@@ -649,9 +612,10 @@ The current manifest exposes a public LoadBalancer because it is easy to demonst
 6. Select `Role assignments`.
 7. Confirm `id-keyvault-demo` has `Key Vault Secrets User`.
 8. Go to `Secrets`.
-9. Confirm both secrets exist:
+9. Confirm these secrets exist:
    - `cosmos-endpoint`
    - `cosmos-key`
+   - `auth-jwt-secret`
 
 ### Verify Private DNS
 
@@ -659,7 +623,6 @@ The current manifest exposes a public LoadBalancer because it is easy to demonst
 2. Confirm these zones exist and are linked to `vnet-aks-keyvault-demo`:
    - `privatelink.vaultcore.azure.net`
    - `privatelink.documents.azure.com`
-   - `privatelink.azurecr.io`
 3. Confirm each zone has records for the related service.
 
 ### Verify Cosmos DB Writes
@@ -670,12 +633,15 @@ The current manifest exposes a public LoadBalancer because it is easy to demonst
 4. Confirm private endpoint connection is `Approved`.
 5. Go to `Data Explorer`.
 6. Open database `demoapp`.
-7. Open container `notes`.
-8. Select `Items`.
-9. Create a note in the app.
-10. Refresh items and confirm the document appears.
+7. Open container `users`.
+8. Register a user in the app.
+9. Refresh items and confirm a user document appears.
+10. Open container `notes`.
+11. Select `Items`.
+12. Create a note in the app.
+13. Refresh items and confirm the note document appears under the signed-in account.
 
-## 13. Troubleshooting
+## 12. Troubleshooting
 
 ### Pod Cannot Read Key Vault Secret
 
@@ -695,23 +661,23 @@ Check:
 
 - `cosmos-endpoint` secret value is the Cosmos DB URI
 - `cosmos-key` secret value is the primary key
+- `auth-jwt-secret` exists in Key Vault
 - Cosmos DB private endpoint is approved
 - Cosmos DB public network access is disabled only after private endpoint and private DNS are working
 - Private DNS zone `privatelink.documents.azure.com` is linked to the AKS VNet
 - Database is `demoapp`
 - Container is `notes`
 - Partition key is `/owner`
+- Container `users` exists
+- Users partition key is `/email`
 
 ### Image Pull Fails
 
 Check:
 
-- AKS was attached to ACR during cluster creation
-- Image name in deployment has the correct ACR login server
-- Image tag exists in ACR under `Repositories`
-- AKS kubelet identity has `AcrPull`
-- ACR private endpoint is approved
-- Private DNS zone `privatelink.azurecr.io` is linked to the AKS VNet
+- Image name is `elzabeth03/keyvault-demo:1.0.0`
+- The image tag exists in Docker Hub
+- The Docker Hub repository is public, or the deployment has an image pull secret for a private repository
 
 ### LoadBalancer Has No External IP
 
@@ -729,7 +695,7 @@ kubectl port-forward svc/keyvault-demo 8080:80 -n keyvault-demo
 
 Then open `http://localhost:8080`.
 
-## 14. Cleanup Through Portal
+## 13. Cleanup Through Portal
 
 1. Open `Resource groups`.
 2. Select `rg-aks-keyvault-demo`.
@@ -737,4 +703,4 @@ Then open `http://localhost:8080`.
 4. Type the resource group name.
 5. Select `Delete`.
 
-This deletes AKS, ACR, Key Vault, Cosmos DB, and the managed identity.
+This deletes AKS, Key Vault, Cosmos DB, and the managed identity.

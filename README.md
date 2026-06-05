@@ -1,15 +1,16 @@
-# AKS Key Vault Workload Identity Demo
+# AKS Key Vault Workload Identity App
 
-This demo is a monolithic app with:
+This is a monolithic app with:
 
 - FastAPI backend using Azure SDK
 - Next.js frontend
 - Azure Key Vault for Cosmos DB endpoint and key
+- JWT session signing backed by Azure Key Vault
 - Azure Cosmos DB for NoSQL data storage
 - AKS with OIDC issuer and Azure Workload Identity
 - Docker and Kubernetes manifests
 
-The use case is a small notes app. The frontend calls FastAPI APIs, FastAPI uses `DefaultAzureCredential`, Workload Identity provides the pod identity in AKS, and Key Vault returns the Cosmos DB credentials.
+The use case is a secure notes workspace with registration, sign-in, and per-user records. The frontend calls FastAPI APIs, FastAPI uses `DefaultAzureCredential`, Workload Identity provides the pod identity in AKS, and Key Vault returns the Cosmos DB credentials and JWT signing secret.
 
 ## Project Structure
 
@@ -24,6 +25,26 @@ start.sh                 Starts FastAPI and Next.js in one container
 
 ## Local Development
 
+## Test The App With Docker Compose
+
+Use this before creating Azure resources if you only want to test the landing page, register, sign-in, and notes workflow.
+
+```powershell
+docker compose up --build
+```
+
+Open `http://localhost:3000`.
+
+This Compose flow sets `APP_STORAGE_MODE=local`, so the app does not call Azure Key Vault or Cosmos DB. Users and notes are stored in a local Docker volume. To reset local test data:
+
+```powershell
+docker compose down -v
+```
+
+Production and AKS deployments should not use `APP_STORAGE_MODE=local`; they should use Key Vault and Cosmos DB as described in `docs/azure-manual-flow.md`.
+
+## Local Development With Azure
+
 For local development you can authenticate with Azure CLI and use the same Key Vault flow.
 
 ```powershell
@@ -31,6 +52,8 @@ az login
 $env:KEY_VAULT_URL="https://<KEY_VAULT_NAME>.vault.azure.net/"
 $env:COSMOS_ENDPOINT_SECRET_NAME="cosmos-endpoint"
 $env:COSMOS_KEY_SECRET_NAME="cosmos-key"
+$env:JWT_SECRET_NAME="auth-jwt-secret"
+$env:USERS_CONTAINER_NAME="users"
 ```
 
 Run the API:
@@ -59,11 +82,12 @@ Open `http://localhost:3000`.
 docker build -t keyvault-demo:1.0.0 .
 ```
 
-For AKS, tag and push it to Azure Container Registry:
+For AKS, tag and push it to Docker Hub:
 
 ```powershell
-docker tag keyvault-demo:1.0.0 <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
-docker push <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
+docker login
+docker tag keyvault-demo:1.0.0 elzabeth03/keyvault-demo:1.0.0
+docker push elzabeth03/keyvault-demo:1.0.0
 ```
 
 ## Deploy To AKS

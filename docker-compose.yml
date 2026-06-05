@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    image: vaultdesk-local:latest
+    ports:
+      - "3000:3000"
+    environment:
+      APP_STORAGE_MODE: local
+      LOCAL_DATA_FILE: /data/vaultdesk-local.json
+      LOCAL_JWT_SECRET: change-this-local-compose-secret
+      COSMOS_DATABASE_NAME: localdb
+      COSMOS_CONTAINER_NAME: notes
+      USERS_CONTAINER_NAME: users
+      JWT_SECRET_NAME: auth-jwt-secret
+      CORS_ORIGINS: http://localhost:3000
+    volumes:
+      - vaultdesk-local-data:/data
+
+volumes:
+  vaultdesk-local-data:

@@ -1,9 +1,8 @@
 # Manual Azure Deployment Flow
 
-This guide creates the Azure resources needed for the demo app:
+This guide creates the Azure resources needed for the app:
 
 - Resource group
-- Azure Container Registry
 - Cosmos DB for NoSQL with public access for demo
 - Key Vault containing the Cosmos DB endpoint and key
 - AKS with OIDC issuer and Workload Identity
@@ -12,19 +11,39 @@ This guide creates the Azure resources needed for the demo app:
 
 Use Azure CLI for exact values, then verify the same choices in the Azure Portal if you are doing the flow manually.
 
+## Optional: Test The App Locally First
+
+If you want to test the landing page, register, sign-in, and notes workflow before creating Azure resources, use Docker Compose from the project root:
+
+```powershell
+docker compose up --build
+```
+
+Open `http://localhost:3000`.
+
+This local test uses `APP_STORAGE_MODE=local`, so it does not call Azure Key Vault or Cosmos DB. Users and notes are saved in a local Docker volume. Reset local data with:
+
+```powershell
+docker compose down -v
+```
+
+Do not use `APP_STORAGE_MODE=local` for AKS. The AKS deployment should use Key Vault secrets and Cosmos DB as shown below.
+
 ## 1. Choose Names
 
 ```powershell
 $SUBSCRIPTION_ID="<subscription-id>"
 $LOCATION="eastus"
 $RG="rg-aks-keyvault-demo"
-$ACR_NAME="acrkvdemo$((Get-Random -Maximum 9999))"
 $AKS_NAME="aks-keyvault-demo"
 $KV_NAME="kv-demo-$((Get-Random -Maximum 9999))"
 $COSMOS_NAME="cosmos-kv-demo-$((Get-Random -Maximum 9999))"
 $IDENTITY_NAME="id-keyvault-demo"
 $NAMESPACE="keyvault-demo"
 $SERVICE_ACCOUNT="keyvault-demo-sa"
+$DOCKERHUB_NAMESPACE="elzabeth03"
+$IMAGE_NAME="keyvault-demo"
+$IMAGE_TAG="1.0.0"
 ```
 
 ```powershell
@@ -38,23 +57,7 @@ Portal options:
 - Resource group: create `rg-aks-keyvault-demo`
 - Region: use one region for all resources, such as East US
 
-## 2. Create Azure Container Registry
-
-```powershell
-az acr create `
-  --resource-group $RG `
-  --name $ACR_NAME `
-  --sku Basic `
-  --admin-enabled false
-```
-
-Portal options:
-
-- SKU: Basic is enough for demo
-- Admin user: Disabled
-- Networking: Public endpoint enabled
-
-## 3. Create Cosmos DB For NoSQL
+## 2. Create Cosmos DB For NoSQL
 
 ```powershell
 az cosmosdb create `
@@ -75,6 +78,14 @@ az cosmosdb sql container create `
   --name notes `
   --partition-key-path "/owner" `
   --throughput 400
+
+az cosmosdb sql container create `
+  --resource-group $RG `
+  --account-name $COSMOS_NAME `
+  --database-name demoapp `
+  --name users `
+  --partition-key-path "/email" `
+  --throughput 400
 ```
 
 Portal options:
@@ -88,7 +99,7 @@ Portal options:
 
 Production note: prefer private endpoints, firewall rules, and managed identity/RBAC where possible.
 
-## 4. Create Key Vault
+## 3. Create Key Vault
 
 ```powershell
 az keyvault create `
@@ -110,12 +121,22 @@ Store Cosmos values as secrets:
 ```powershell
 $COSMOS_ENDPOINT=$(az cosmosdb show --resource-group $RG --name $COSMOS_NAME --query documentEndpoint -o tsv)
 $COSMOS_KEY=$(az cosmosdb keys list --resource-group $RG --name $COSMOS_NAME --type keys --query primaryMasterKey -o tsv)
+$JWT_SECRET_BYTES=New-Object byte[] 64
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($JWT_SECRET_BYTES)
+$JWT_SECRET=[Convert]::ToBase64String($JWT_SECRET_BYTES)
 
 az keyvault secret set --vault-name $KV_NAME --name cosmos-endpoint --value $COSMOS_ENDPOINT
 az keyvault secret set --vault-name $KV_NAME --name cosmos-key --value $COSMOS_KEY
+az keyvault secret set --vault-name $KV_NAME --name auth-jwt-secret --value $JWT_SECRET
 ```
 
-## 5. Create AKS With OIDC And Workload Identity
+Authentication secret reminder:
+
+- Create `auth-jwt-secret` before deploying the application.
+- Keep `cosmos-endpoint`, `cosmos-key`, and `auth-jwt-secret` in Key Vault. Do not put their raw values in Kubernetes manifests.
+- If you later add other secrets, such as external API keys, OAuth client secrets, or webhook signing secrets, add them to Key Vault with `az keyvault secret set --vault-name $KV_NAME --name <secret-name> --value <secret-value>` and add the corresponding secret-name environment variable to the deployment.
+
+## 4. Create AKS With OIDC And Workload Identity
 
 ```powershell
 az aks create `
@@ -124,7 +145,6 @@ az aks create `
   --node-count 2 `
   --enable-oidc-issuer `
   --enable-workload-identity `
-  --attach-acr $ACR_NAME `
   --generate-ssh-keys
 
 az aks get-credentials --resource-group $RG --name $AKS_NAME
@@ -134,12 +154,12 @@ Portal options:
 
 - Authentication and Authorization: local accounts can stay enabled for demo
 - Node pools: 2 nodes is enough
-- Integrations: attach the ACR you created
+- Integrations: no Azure Container Registry attachment is required when using public Docker Hub images
 - Security: enable OIDC issuer
 - Security: enable Workload Identity
 - Networking: Azure CNI or Kubenet are both fine for demo
 
-## 6. Create The User-Assigned Managed Identity
+## 5. Create The User-Assigned Managed Identity
 
 ```powershell
 az identity create `
@@ -153,7 +173,7 @@ $IDENTITY_PRINCIPAL_ID=$(az identity show --resource-group $RG --name $IDENTITY_
 
 This identity is the Entra ID object your pod will use. You do not need a classic App Registration for this workload identity flow; Azure creates and manages the service principal behind the user-assigned managed identity.
 
-## 7. Grant Key Vault Access
+## 6. Grant Key Vault Access
 
 ```powershell
 $KV_SCOPE=$(az keyvault show --resource-group $RG --name $KV_NAME --query id -o tsv)
@@ -175,7 +195,7 @@ Portal options:
 
 Do not select the AKS agent pool identity, such as `aks-keyvault-demo-agentpool`. The app pod reads Key Vault through the user-assigned managed identity, not through the node pool identity.
 
-## 8. Configure Federated Identity Credential
+## 7. Configure Federated Identity Credential
 
 Get the AKS OIDC issuer URL:
 
@@ -204,18 +224,23 @@ Portal options:
 - Service account: `keyvault-demo-sa`
 - Audience: `api://AzureADTokenExchange`
 
-## 9. Build And Push The Image
+## 8. Build And Push The Image To Docker Hub
 
 ```powershell
-$ACR_LOGIN_SERVER=$(az acr show --resource-group $RG --name $ACR_NAME --query loginServer -o tsv)
-
-az acr login --name $ACR_NAME
-docker build -t keyvault-demo:1.0.0 .
-docker tag keyvault-demo:1.0.0 "$ACR_LOGIN_SERVER/keyvault-demo:1.0.0"
-docker push "$ACR_LOGIN_SERVER/keyvault-demo:1.0.0"
+docker login
+docker build -t "${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}" .
+docker push "${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}"
 ```
 
-## 10. Update Kubernetes Manifests
+This guide uses:
+
+```text
+elzabeth03/keyvault-demo:1.0.0
+```
+
+The Docker Hub repository must exist or your Docker Hub account must be allowed to create it on first push. If the repository is private, create a Kubernetes image pull secret before deploying and reference it from the deployment.
+
+## 9. Update Kubernetes Manifests
 
 Edit `k8s/service-account.yaml`:
 
@@ -226,11 +251,13 @@ azure.workload.identity/client-id: "<IDENTITY_CLIENT_ID>"
 Edit `k8s/deployment.yaml`:
 
 ```yaml
-image: <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
+image: elzabeth03/keyvault-demo:1.0.0
 KEY_VAULT_URL: "https://<KEY_VAULT_NAME>.vault.azure.net/"
+JWT_SECRET_NAME: "auth-jwt-secret"
+USERS_CONTAINER_NAME: "users"
 ```
 
-## 11. Deploy
+## 10. Deploy
 
 ```powershell
 kubectl apply -k k8s
@@ -240,7 +267,7 @@ kubectl get svc keyvault-demo -n keyvault-demo
 
 Open the external IP shown for the LoadBalancer service.
 
-## 12. Validate Workload Identity
+## 11. Validate Workload Identity
 
 ```powershell
 kubectl logs deploy/keyvault-demo -n keyvault-demo
@@ -251,7 +278,9 @@ Expected behavior:
 
 - The pod has projected Azure identity token environment variables.
 - The app can read `cosmos-endpoint` and `cosmos-key` from Key Vault.
-- Creating a note writes an item to Cosmos DB.
+- The app can read `auth-jwt-secret` from Key Vault to sign and verify sessions.
+- Registering creates a user in the `users` Cosmos DB container.
+- Creating a note writes an item to Cosmos DB for the signed-in account.
 
 ## Entra ID Configuration Summary
 

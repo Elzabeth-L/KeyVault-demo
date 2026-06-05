@@ -17,7 +17,7 @@ spec:
       serviceAccountName: keyvault-demo-sa
       containers:
         - name: app
-          image: acrkvdemo001.azurecr.io/keyvault-demo:1.0.0
+          image: elzabeth03/keyvault-demo:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
@@ -32,6 +32,10 @@ spec:
               value: "demoapp"
             - name: COSMOS_CONTAINER_NAME
               value: "notes"
+            - name: USERS_CONTAINER_NAME
+              value: "users"
+            - name: JWT_SECRET_NAME
+              value: "auth-jwt-secret"
             - name: CORS_ORIGINS
               value: "http://localhost:3000"
           readinessProbe:

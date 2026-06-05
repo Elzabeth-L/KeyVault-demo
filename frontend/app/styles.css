@@ -2,13 +2,16 @@
   color-scheme: light;
   --ink: #17201c;
   --muted: #64716b;
-  --line: #d9e0dc;
+  --line: #d8e0dc;
   --surface: #ffffff;
-  --surface-soft: #f4f7f5;
+  --surface-soft: #f6f8f5;
   --accent: #0f766e;
   --accent-strong: #115e59;
+  --gold: #b8892d;
+  --coral: #c05a46;
+  --dark: #16231f;
   --danger: #b42318;
-  --shadow: 0 18px 50px rgb(23 32 28 / 12%);
+  --shadow: 0 18px 50px rgb(23 32 28 / 13%);
 }
 
 * {
@@ -17,10 +20,7 @@
 
 body {
   margin: 0;
-  background:
-    linear-gradient(135deg, rgb(15 118 110 / 12%), transparent 34%),
-    linear-gradient(315deg, rgb(120 113 108 / 12%), transparent 28%),
-    var(--surface-soft);
+  background: var(--surface-soft);
   color: var(--ink);
   font-family: Arial, Helvetica, sans-serif;
 }
@@ -31,9 +31,187 @@ textarea {
   font: inherit;
 }
 
+button {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.landingShell {
+  min-height: 100vh;
+  padding: 24px clamp(18px, 4vw, 56px) 48px;
+  background:
+    linear-gradient(140deg, rgb(15 118 110 / 14%), transparent 36%),
+    linear-gradient(330deg, rgb(192 90 70 / 14%), transparent 32%),
+    var(--surface-soft);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 10px 0 40px;
+}
+
+.brandMark,
+.navActions,
+.heroActions,
+.trustRow,
+.headerActions {
+  display: flex;
+  align-items: center;
+}
+
+.brandMark {
+  gap: 10px;
+  color: var(--dark);
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.brandMark svg {
+  color: var(--accent-strong);
+}
+
+.navActions,
+.heroActions,
+.headerActions {
+  gap: 10px;
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 430px);
+  align-items: center;
+  gap: clamp(28px, 6vw, 76px);
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.heroCopy {
+  min-width: 0;
+  padding: clamp(18px, 4vw, 36px) 0;
+}
+
+.heroCopy h1 {
+  max-width: 13ch;
+  margin-bottom: 22px;
+  font-size: clamp(48px, 7vw, 82px);
+  line-height: 0.96;
+}
+
+.heroCopy .lede {
+  max-width: 650px;
+  margin-bottom: 28px;
+  font-size: 20px;
+}
+
+.trustRow {
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 24px;
+  color: #405049;
+  font-size: 14px;
+}
+
+.trustRow span,
+.passwordHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.trustRow svg,
+.passwordHint.valid svg {
+  color: var(--accent);
+}
+
+.authPanel,
+.sidebar,
+.panel {
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.authPanel {
+  padding: 18px;
+}
+
+.authTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  min-height: 44px;
+  margin-bottom: 22px;
+  padding: 5px;
+  background: #e9efeb;
+  border-radius: 8px;
+}
+
+.authTabs button {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.authTabs button.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 6px 16px rgb(23 32 28 / 10%);
+}
+
+.authForm {
+  display: grid;
+  gap: 16px;
+  padding: 8px;
+}
+
+.authForm h2 {
+  margin-bottom: 6px;
+}
+
+.authForm p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  color: #35433d;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.passwordHint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.passwordHint.valid {
+  color: var(--accent-strong);
+}
+
 .shell {
   min-height: 100vh;
   padding: 32px;
+  background:
+    linear-gradient(135deg, rgb(15 118 110 / 12%), transparent 34%),
+    linear-gradient(315deg, rgb(184 137 45 / 13%), transparent 28%),
+    var(--surface-soft);
 }
 
 .workspace {
@@ -42,14 +220,6 @@ textarea {
   gap: 24px;
   max-width: 1180px;
   margin: 0 auto;
-}
-
-.sidebar,
-.panel {
-  background: rgb(255 255 255 / 84%);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
 }
 
 .sidebar {
@@ -68,7 +238,7 @@ textarea {
   margin: 0 0 8px;
   color: var(--accent-strong);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -185,6 +355,9 @@ textarea:focus {
 }
 
 .primaryButton,
+.secondaryButton,
+.ghostButton,
+.darkButton,
 .iconButton {
   display: inline-flex;
   align-items: center;
@@ -194,18 +367,48 @@ textarea:focus {
   cursor: pointer;
 }
 
-.primaryButton {
+.primaryButton,
+.secondaryButton,
+.darkButton {
   gap: 8px;
-  width: fit-content;
   min-height: 44px;
   padding: 0 16px;
+  font-weight: 800;
+}
+
+.primaryButton {
+  width: fit-content;
   background: var(--accent);
   color: white;
-  font-weight: 700;
+  box-shadow: 0 12px 26px rgb(15 118 110 / 22%);
+}
+
+.secondaryButton {
+  background: var(--surface);
+  color: var(--dark);
+  border: 1px solid var(--line);
+}
+
+.darkButton {
+  background: var(--dark);
+  color: white;
+}
+
+.ghostButton {
+  min-height: 40px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--dark);
+  font-weight: 800;
+}
+
+.fullWidth {
+  width: 100%;
 }
 
 .primaryButton:disabled {
   opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .iconButton {
@@ -245,7 +448,7 @@ textarea:focus {
 }
 
 .error {
-  margin-bottom: 16px;
+  margin-bottom: 4px;
   padding: 12px 14px;
   color: var(--danger);
   background: #fff0ef;
@@ -253,22 +456,54 @@ textarea:focus {
   border-radius: 8px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
+  .landingShell,
   .shell {
-    padding: 16px;
+    padding: 18px;
   }
 
+  .topbar {
+    padding-bottom: 18px;
+  }
+
+  .heroGrid,
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .heroCopy h1,
+  h1 {
+    max-width: 14ch;
+    font-size: 44px;
   }
 
   .sidebar {
     min-height: auto;
     gap: 24px;
   }
+}
 
-  h1 {
-    max-width: 14ch;
-    font-size: 44px;
+@media (max-width: 560px) {
+  .topbar,
+  .panelHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .navActions,
+  .heroActions {
+    width: 100%;
+  }
+
+  .heroActions .primaryButton,
+  .heroActions .secondaryButton,
+  .navActions .darkButton {
+    flex: 1;
+  }
+
+  .authPanel,
+  .panel,
+  .sidebar {
+    padding: 18px;
   }
 }

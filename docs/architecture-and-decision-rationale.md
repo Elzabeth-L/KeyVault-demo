@@ -1,20 +1,22 @@
 # Architecture And Decision Rationale
 
-This document explains why the demo uses this approach, what each Azure option means, and how the code connects to the infrastructure.
+This document explains why the app uses this approach, what each Azure option means, and how the code connects to the infrastructure.
 
 ## 1. What We Are Building
 
-The application is a simple notes app.
+The application is a secure notes workspace with registration, sign-in, and per-user notes.
 
 User flow:
 
 1. User opens the Next.js UI.
-2. User creates a note.
-3. Next.js calls the FastAPI backend.
-4. FastAPI asks Key Vault for Cosmos DB connection details.
-5. FastAPI writes the note into Cosmos DB for NoSQL.
-6. The app runs in AKS.
-7. The AKS pod authenticates to Azure through Workload Identity.
+2. User registers or signs in.
+3. Next.js calls the FastAPI authentication endpoints.
+4. FastAPI reads the JWT signing secret from Key Vault and returns a signed token.
+5. User creates a note with the JWT bearer token.
+6. FastAPI asks Key Vault for Cosmos DB connection details.
+7. FastAPI writes the note into Cosmos DB for NoSQL under the signed-in account.
+8. The app runs in AKS.
+9. The AKS pod authenticates to Azure through Workload Identity.
 
 The important part is not the notes use case itself. The important part is the secure cloud pattern:
 
@@ -24,7 +26,7 @@ AKS Pod
   -> Azure Workload Identity
   -> User-Assigned Managed Identity
   -> Key Vault
-  -> Cosmos DB credentials
+  -> Cosmos DB credentials and JWT signing secret
   -> Cosmos DB
 ```
 
@@ -106,6 +108,9 @@ The frontend calls:
 
 ```text
 /api/config
+/api/auth/register
+/api/auth/signin
+/api/auth/me
 /api/notes
 /api/notes/{id}
 ```
@@ -131,16 +136,18 @@ This keeps Kubernetes simple:
 
 ## 5. Why Azure Key Vault
 
-Key Vault is used to store sensitive Cosmos DB credentials:
+Key Vault is used to store sensitive application secrets:
 
 - Cosmos endpoint
 - Cosmos primary key
+- JWT signing secret
 
 Secret names:
 
 ```text
 cosmos-endpoint
 cosmos-key
+auth-jwt-secret
 ```
 
 These are referenced in:
@@ -150,6 +157,7 @@ These are referenced in:
 ```python
 endpoint = secret_client.get_secret(env("COSMOS_ENDPOINT_SECRET_NAME", "cosmos-endpoint")).value
 key = secret_client.get_secret(env("COSMOS_KEY_SECRET_NAME", "cosmos-key")).value
+jwt_secret = secret_client.get_secret(env("JWT_SECRET_NAME", "auth-jwt-secret")).value
 ```
 
 Why this approach:
@@ -157,10 +165,11 @@ Why this approach:
 - No Cosmos key in source code.
 - No Cosmos key in Docker image.
 - No Cosmos key in Kubernetes Secret.
+- No JWT signing secret in source code, Docker image, or Kubernetes Secret.
 - Secret rotation can happen in Key Vault.
 - Access is controlled through Azure RBAC.
 
-For this demo, the app reads Key Vault secrets at startup and caches the Cosmos container client.
+The app reads Key Vault secrets through the workload identity managed identity and caches clients where appropriate.
 
 Tradeoff:
 
@@ -213,12 +222,25 @@ Why `/owner` as partition key:
 - Queries commonly filter by owner.
 - It gives a simple, explainable partitioning strategy.
 
-Demo limitation:
+Authentication container:
 
-- The frontend uses a fixed owner, `demo-user`.
-- In production, owner should come from authenticated user claims.
+```text
+users
+```
 
-## 7. Why Private Endpoints For Key Vault, Cosmos DB, And ACR
+Users partition key:
+
+```text
+/email
+```
+
+Why `/email` as partition key:
+
+- Registration and sign-in look up users by email.
+- Email is stable enough for this app's identity record.
+- It keeps user authentication lookups simple.
+
+## 7. Why Private Endpoints For Key Vault And Cosmos DB
 
 The secure default is to keep platform services off the public internet path.
 
@@ -226,7 +248,6 @@ For this demo, use private endpoints for:
 
 - Key Vault
 - Cosmos DB
-- Azure Container Registry, if using Premium SKU
 
 Why:
 
@@ -241,7 +262,6 @@ Recommended portal choices:
 ```text
 Key Vault -> Networking -> Disable public access -> Private endpoint
 Cosmos DB -> Networking -> Private endpoint -> Disable public access
-ACR -> Premium SKU -> Private access -> Private endpoint
 ```
 
 Required private DNS zones:
@@ -249,7 +269,6 @@ Required private DNS zones:
 ```text
 privatelink.vaultcore.azure.net
 privatelink.documents.azure.com
-privatelink.azurecr.io
 ```
 
 Fallback only:
@@ -277,7 +296,7 @@ AKS gives:
 - Managed Kubernetes control plane.
 - Azure integration.
 - Workload Identity support.
-- ACR integration.
+- Public container image pulls from Docker Hub.
 - LoadBalancer service support.
 
 ## 9. Why OIDC Issuer Is Required
@@ -416,31 +435,17 @@ Why not `Key Vault Contributor`:
 - `Key Vault Contributor` manages the vault itself.
 - It does not grant permission to read secret values when using Azure RBAC.
 
-## 14. Why ACR Pull IAM Is Required
+## 14. Why Docker Hub Does Not Need Azure Pull IAM
 
-AKS nodes need permission to pull the Docker image from Azure Container Registry.
-
-Required role:
+The deployment uses Docker Hub for the application image:
 
 ```text
-AcrPull
+elzabeth03/keyvault-demo:1.0.0
 ```
 
-Scope:
+Because this is a public Docker Hub image, AKS can pull it without an Azure Container Registry and without an `AcrPull` role assignment.
 
-```text
-Azure Container Registry
-```
-
-Identity:
-
-```text
-AKS kubelet identity
-```
-
-If ACR is attached during AKS creation, Azure normally creates this role assignment automatically.
-
-If the pod shows `ImagePullBackOff`, verify this IAM assignment.
+If you make the Docker Hub repository private later, Kubernetes needs an image pull secret. That is Kubernetes registry authentication, not Azure IAM.
 
 ## 15. Why Custom VNet And Subnets Are Required For The Secure Flow
 
@@ -474,7 +479,6 @@ For this secure demo:
 
 - Cosmos DB public access should be disabled after private endpoint setup.
 - Key Vault public access should be disabled after private endpoint setup.
-- ACR should use private access if Premium SKU is allowed.
 - Private endpoints should use `snet-private-endpoints`.
 - AKS nodes should use `snet-aks-nodes`.
 
@@ -504,7 +508,7 @@ More secure alternatives:
 
 Security decision:
 
-The app endpoint can be public for a controlled demo, but the backend services should not be public. Key Vault, Cosmos DB, and ACR should use private endpoints where possible.
+The app endpoint can be public for a controlled demo, but the backend services should not be public. Key Vault and Cosmos DB should use private endpoints where possible.
 
 ## 17. Why Kubernetes Namespace
 
@@ -544,19 +548,22 @@ env:
   - name: KEY_VAULT_URL
   - name: COSMOS_ENDPOINT_SECRET_NAME
   - name: COSMOS_KEY_SECRET_NAME
+  - name: JWT_SECRET_NAME
   - name: COSMOS_DATABASE_NAME
   - name: COSMOS_CONTAINER_NAME
+  - name: USERS_CONTAINER_NAME
 ```
 
 Why this is acceptable:
 
 - Key Vault URL is not a secret.
 - Secret names are not secret values.
-- Database and container names are not sensitive for this demo.
+- Database and container names are not sensitive.
 
 What is not stored in Kubernetes:
 
 - Cosmos DB key
+- JWT signing secret value
 - Azure client secret
 - Connection string
 
@@ -624,19 +631,21 @@ azure.workload.identity/client-id: "<USER_ASSIGNED_MANAGED_IDENTITY_CLIENT_ID>"
 In [k8s/deployment.yaml](../k8s/deployment.yaml):
 
 ```yaml
-image: <ACR_LOGIN_SERVER>/keyvault-demo:1.0.0
+image: elzabeth03/keyvault-demo:1.0.0
 value: "https://<KEY_VAULT_NAME>.vault.azure.net/"
+JWT_SECRET_NAME: "auth-jwt-secret"
+USERS_CONTAINER_NAME: "users"
 ```
 
 ## 22. End-To-End Responsibility Map
 
 | Layer | File Or Azure Resource | Responsibility |
 | --- | --- | --- |
-| UI | `frontend/app/page.tsx` | Shows notes and sends API calls |
-| API | `backend/main.py` | Reads Key Vault, writes Cosmos DB |
+| UI | `frontend/app/page.tsx` | Shows landing/auth screens, sends API calls, stores the session token in browser storage |
+| API | `backend/main.py` | Handles register/sign-in, signs JWTs, reads Key Vault, writes Cosmos DB |
 | Identity | Managed identity + federated credential | Lets pod authenticate to Azure |
-| Secrets | Key Vault | Stores Cosmos endpoint and key |
-| Data | Cosmos DB for NoSQL | Stores note documents |
+| Secrets | Key Vault | Stores Cosmos endpoint, Cosmos key, and JWT signing secret |
+| Data | Cosmos DB for NoSQL | Stores user and note documents |
 | Runtime | Dockerfile + start.sh | Runs frontend and backend together |
 | Orchestration | AKS | Runs the app container |
 | Kubernetes identity | ServiceAccount | Binds pod to managed identity |
@@ -648,11 +657,11 @@ For production, improve the demo with:
 
 - Private endpoint for Key Vault.
 - Private endpoint for Cosmos DB.
-- Private endpoint or private link for ACR.
+- Private Docker Hub repository with a Kubernetes image pull secret if the image should not be public.
 - Disable public network access.
 - Use Azure CNI Overlay or company-standard CNI.
 - Use ingress with TLS.
-- Add authentication through Microsoft Entra ID.
+- Consider Microsoft Entra ID or another enterprise identity provider for centralized user management.
 - Use Cosmos DB RBAC with managed identity instead of account keys.
 - Add CI/CD pipeline.
 - Add observability with Azure Monitor and Application Insights.
@@ -665,8 +674,8 @@ This approach was chosen because it demonstrates the requested stack while keepi
 
 - FastAPI demonstrates Azure SDK usage clearly.
 - Next.js provides a simple UI.
-- Key Vault stores sensitive Cosmos credentials.
-- Cosmos DB gives a managed NoSQL backend.
+- Key Vault stores sensitive Cosmos credentials and the JWT signing secret.
+- Cosmos DB gives a managed NoSQL backend for users and notes.
 - AKS runs the containerized app.
 - OIDC and Workload Identity remove the need for client secrets.
 - Managed identity and RBAC provide least-privilege access.
@@ -674,7 +683,7 @@ This approach was chosen because it demonstrates the requested stack while keepi
 
 ## 25. Complete Authentication And Authorization Flow
 
-This section explains how authentication works from AKS to Azure services.
+This section explains how the application authenticates to Azure services.
 
 There are multiple identities involved, and each one has a different job.
 
@@ -682,7 +691,7 @@ There are multiple identities involved, and each one has a different job.
 | --- | --- | --- |
 | Your Azure user | Microsoft Entra ID | Creates resources and assigns roles |
 | AKS control plane identity | Azure-managed identity | Lets AKS manage Azure infrastructure |
-| AKS kubelet identity | Azure-managed identity | Lets worker nodes pull images from ACR |
+| AKS kubelet identity | Azure-managed identity | Lets worker nodes pull public container images |
 | App user-assigned managed identity | Microsoft Entra ID | Lets the application pod read Key Vault secrets |
 | Kubernetes service account | Kubernetes API | Gives the pod a Kubernetes identity |
 
@@ -862,48 +871,31 @@ Assigning Key Vault Contributor and expecting secret read access.
 
 With Azure RBAC, management-plane roles and data-plane secret access are different.
 
-## 30. ACR Image Pull Authentication Flow
+## 30. Docker Hub Image Pull Flow
 
-The application image is stored in Azure Container Registry.
+The application image is stored in Docker Hub:
 
-AKS needs permission to pull it.
+```text
+elzabeth03/keyvault-demo:1.0.0
+```
 
-This happens before the application code starts.
+AKS pulls this image before the application code starts.
 
 Flow:
 
 ```text
 AKS scheduler places pod on node
   -> kubelet on worker node tries to pull image
-  -> kubelet identity authenticates to ACR
-  -> ACR checks AcrPull role
+  -> Docker Hub serves elzabeth03/keyvault-demo:1.0.0
   -> image is pulled to node
   -> container starts
 ```
 
-Identity used:
+For a public Docker Hub repository, no Azure pull IAM is needed.
 
-```text
-AKS kubelet identity
-```
+For a private Docker Hub repository, create a Kubernetes image pull secret and reference it in the deployment.
 
-Required role:
-
-```text
-AcrPull
-```
-
-Scope:
-
-```text
-Azure Container Registry
-```
-
-This is different from the app managed identity.
-
-The app managed identity reads Key Vault. The kubelet identity pulls container images.
-
-If ACR permission is missing, the pod will not start and you may see:
+If the image name is wrong or the repository is private without a pull secret, the pod will not start and you may see:
 
 ```text
 ImagePullBackOff
@@ -928,16 +920,18 @@ Browser
 
 For create note:
 
-1. Browser submits the form.
-2. Frontend sends `POST /api/notes`.
-3. Next.js receives the request on port `3000`.
-4. Next.js rewrite forwards it to FastAPI on `127.0.0.1:8000`.
-5. FastAPI validates the request with Pydantic.
-6. FastAPI gets Cosmos endpoint and key from Key Vault.
-7. FastAPI creates a Cosmos client.
-8. FastAPI writes the note document to the `notes` container.
-9. Cosmos DB stores the document under partition key `/owner`.
-10. API returns the created note to the UI.
+1. Browser signs in or registers through `POST /api/auth/signin` or `POST /api/auth/register`.
+2. FastAPI reads `auth-jwt-secret` from Key Vault and returns a signed JWT.
+3. Browser submits the note form with `Authorization: Bearer <token>`.
+4. Frontend sends `POST /api/notes`.
+5. Next.js receives the request on port `3000`.
+6. Next.js rewrite forwards it to FastAPI on `127.0.0.1:8000`.
+7. FastAPI validates the JWT and request body.
+8. FastAPI gets Cosmos endpoint and key from Key Vault.
+9. FastAPI creates a Cosmos client.
+10. FastAPI writes the note document to the `notes` container.
+11. Cosmos DB stores the document under partition key `/owner`, using the signed-in user's identity.
+12. API returns the created note to the UI.
 
 ## 32. Kubernetes Object Responsibility
 
@@ -1059,7 +1053,6 @@ Pod
   -> Private DNS resolution
   -> Key Vault private endpoint
   -> Cosmos DB private endpoint
-  -> ACR private endpoint for image pulls
 ```
 
 Secure service access requires:
@@ -1095,18 +1088,21 @@ Kubernetes still receives only non-secret settings:
 KEY_VAULT_URL
 COSMOS_ENDPOINT_SECRET_NAME
 COSMOS_KEY_SECRET_NAME
+JWT_SECRET_NAME
 COSMOS_DATABASE_NAME
 COSMOS_CONTAINER_NAME
+USERS_CONTAINER_NAME
 ```
 
 ## 36. Failure Points And What They Mean
 
 | Symptom | Likely Layer | What To Check |
 | --- | --- | --- |
-| `ImagePullBackOff` | ACR IAM | Kubelet identity has `AcrPull` |
+| `ImagePullBackOff` | Image registry | Docker Hub image exists, repository visibility, image pull secret if private |
 | Pod starts but Key Vault call fails | Workload Identity or Key Vault IAM | Service account annotation, federated credential, `Key Vault Secrets User` |
 | Error says issuer/subject mismatch | Federated credential | Namespace and service account names exactly match |
 | Key Vault returns forbidden | Key Vault RBAC | Managed identity has secret data-plane role |
+| Register or sign-in fails | Auth secret or users container | `auth-jwt-secret`, `users` container, `/email` partition key |
 | Cosmos write fails | Cosmos credentials or networking | Secret values, public access, database/container |
 | LoadBalancer has no IP | AKS networking | Company policy, service events, public LB restrictions |
 | `/api/notes` fails from UI | App routing | Next.js rewrite and FastAPI health |
@@ -1126,11 +1122,11 @@ Needed roles:
 
 ### 2. Can AKS Pull The Image?
 
-Controlled by ACR IAM.
+Controlled by Kubernetes image pull configuration and Docker Hub repository access.
 
-Needed role:
+Needed configuration:
 
-- `AcrPull` for AKS kubelet identity
+- Public image `elzabeth03/keyvault-demo:1.0.0`, or a Kubernetes image pull secret if the Docker Hub repository is private
 
 ### 3. Can The Pod Become The Managed Identity?
 
