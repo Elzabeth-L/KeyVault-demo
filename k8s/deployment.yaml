@@ -23,7 +23,7 @@ spec:
             - containerPort: 3000
           env:
             - name: KEY_VAULT_URL
-              value: "https://kv-demo-001.vault.azure.net/"
+              value: "https://kv-demo-0001.vault.azure.net/"
             - name: COSMOS_ENDPOINT_SECRET_NAME
               value: "cosmos-endpoint"
             - name: COSMOS_KEY_SECRET_NAME
