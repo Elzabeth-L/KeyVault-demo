@@ -1,0 +1,1604 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure Key Vault With AKS Workload Identity</title>
+  <style>
+    :root {
+      --ink: #14213d;
+      --muted: #52647a;
+      --line: #d8e2ec;
+      --paper: #f5f8fb;
+      --white: #ffffff;
+      --azure: #0078d4;
+      --azure-dark: #005a9e;
+      --teal: #008c95;
+      --amber: #d97706;
+      --rose: #be123c;
+      --green: #18794e;
+      --shadow: 0 24px 70px rgb(19 42 66 / 16%);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #e8eef4;
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .deck {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      grid-template-rows: auto 1fr auto;
+      width: 100%;
+      height: 100%;
+      padding: clamp(34px, 5vh, 64px) clamp(44px, 6vw, 92px) 34px;
+      overflow: hidden;
+      background:
+        linear-gradient(120deg, rgb(0 120 212 / 7%), transparent 32%),
+        var(--paper);
+    }
+
+    .slide.active {
+      display: grid;
+      animation: slide-in 220ms ease-out;
+    }
+
+    @keyframes slide-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 9px;
+      height: 100%;
+      background: var(--accent, var(--azure));
+    }
+
+    .slide-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .kicker {
+      margin: 0 0 8px;
+      color: var(--accent, var(--azure));
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 970px;
+      margin-bottom: 0;
+      font-size: clamp(42px, 5vw, 72px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(30px, 3vw, 48px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 12px;
+      font-size: 20px;
+    }
+
+    .slide-number {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .slide-body {
+      display: grid;
+      min-height: 0;
+      align-items: center;
+      gap: clamp(24px, 4vw, 56px);
+      padding: 30px 0 24px;
+    }
+
+    .two-col {
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+    }
+
+    .wide-left {
+      grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .lead {
+      max-width: 930px;
+      margin-bottom: 24px;
+      color: #2e4358;
+      font-size: clamp(20px, 2vw, 29px);
+      line-height: 1.42;
+    }
+
+    .bullets {
+      display: grid;
+      gap: 14px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .bullets li {
+      position: relative;
+      padding-left: 28px;
+      color: #273b50;
+      font-size: clamp(17px, 1.55vw, 23px);
+      line-height: 1.38;
+    }
+
+    .bullets li::before {
+      content: "";
+      position: absolute;
+      top: 0.62em;
+      left: 4px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--accent, var(--azure));
+    }
+
+    .statement {
+      padding: 18px 22px;
+      border-left: 5px solid var(--accent, var(--azure));
+      background: var(--white);
+      box-shadow: 0 8px 24px rgb(19 42 66 / 8%);
+      color: #21384e;
+      font-size: clamp(18px, 1.7vw, 25px);
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .panel {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgb(255 255 255 / 88%);
+      box-shadow: 0 12px 34px rgb(19 42 66 / 9%);
+    }
+
+    .risk-chain {
+      display: grid;
+      gap: 14px;
+    }
+
+    .risk-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 56px;
+      padding: 12px 16px;
+      border: 1px solid #f2c5cb;
+      border-radius: 7px;
+      background: #fff5f6;
+      color: #7f1d35;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .risk-item span:first-child {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--rose);
+      color: white;
+    }
+
+    .object-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .object-card {
+      min-height: 142px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--accent, var(--azure));
+      border-radius: 7px;
+      background: white;
+    }
+
+    .object-card strong {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 22px;
+    }
+
+    .object-card p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    .secret-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    code,
+    .code {
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .secret {
+      padding: 10px 14px;
+      border: 1px solid #f0d887;
+      border-radius: 6px;
+      background: #fffbea;
+      color: #6f4d00;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .architecture {
+      width: 100%;
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 10px;
+      border: 1px solid #cad8e4;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 16px 40px rgb(19 42 66 / 11%);
+    }
+
+    .architecture-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 65vh;
+    }
+
+    .architecture-export {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 68vh;
+      object-fit: contain;
+    }
+
+    .architecture [hidden] {
+      display: none !important;
+    }
+
+    .architecture-svg .boundary {
+      fill: #f8fbfe;
+      stroke: #6ba5cf;
+      stroke-width: 2;
+    }
+
+    .architecture-svg .sub-boundary {
+      fill: #f5fbf7;
+      stroke: #4b9b69;
+      stroke-width: 2;
+      stroke-dasharray: 7 5;
+    }
+
+    .architecture-svg .identity-boundary {
+      fill: #fffbeb;
+      stroke: #d49a39;
+      stroke-width: 2;
+      stroke-dasharray: 7 5;
+    }
+
+    .architecture-svg .node {
+      stroke-width: 2;
+      filter: url("#nodeShadow");
+    }
+
+    .architecture-svg .node-title {
+      fill: #173752;
+      font-size: 14px;
+      font-weight: 750;
+      text-anchor: middle;
+    }
+
+    .architecture-svg .node-detail {
+      fill: #52647a;
+      font-size: 11px;
+      text-anchor: middle;
+    }
+
+    .architecture-svg .zone-title {
+      fill: #28516d;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .architecture-svg .zone-subtitle {
+      fill: #5d7185;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .architecture-svg .flow-label {
+      fill: #334a60;
+      font-size: 10px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+
+    .architecture-svg .arrow {
+      fill: none;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .architecture-svg .traffic {
+      stroke: #1d4ed8;
+      marker-end: url("#arrowBlue");
+    }
+
+    .architecture-svg .identity-flow {
+      stroke: #d97706;
+      marker-end: url("#arrowAmber");
+    }
+
+    .architecture-svg .private-flow {
+      stroke: #0e7490;
+      marker-end: url("#arrowTeal");
+    }
+
+    .architecture-svg .data-flow {
+      stroke: #be123c;
+      marker-end: url("#arrowRose");
+    }
+
+    .architecture-svg .supply-flow {
+      stroke: #0369a1;
+      stroke-dasharray: 8 5;
+      marker-end: url("#arrowCyan");
+    }
+
+    .architecture-svg .token-flow {
+      stroke: #d97706;
+      stroke-dasharray: 8 5;
+      marker-end: url("#arrowAmber");
+    }
+
+    .architecture-legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px 22px;
+      padding: 8px 12px 2px;
+      color: #52647a;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .architecture-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .legend-line {
+      width: 28px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--legend-color);
+    }
+
+    .arch-column {
+      display: grid;
+      gap: 16px;
+    }
+
+    .arch-zone {
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+      border: 2px solid #7fb8df;
+      border-radius: 8px;
+      background: rgb(255 255 255 / 75%);
+    }
+
+    .arch-zone-title {
+      color: var(--azure-dark);
+      font-size: 14px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .arch-box {
+      display: grid;
+      place-items: center;
+      min-height: 66px;
+      padding: 12px;
+      border: 2px solid var(--box-color, var(--azure));
+      border-radius: 7px;
+      background: var(--box-bg, #e6f3fb);
+      color: #173752;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 750;
+      line-height: 1.3;
+    }
+
+    .arrow-down {
+      position: relative;
+      width: 2px;
+      height: 20px;
+      margin: -6px auto;
+      background: #6b7f91;
+    }
+
+    .arrow-down::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      left: -4px;
+      border-width: 7px 5px 0;
+      border-style: solid;
+      border-color: #6b7f91 transparent transparent;
+    }
+
+    .identity-chain {
+      display: grid;
+      max-width: 650px;
+      gap: 6px;
+    }
+
+    .identity-node {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      align-items: center;
+      min-height: 64px;
+      padding: 10px 16px;
+      border: 1px solid #eccb83;
+      border-radius: 7px;
+      background: #fff9e8;
+    }
+
+    .identity-index {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--amber);
+      color: white;
+      font-weight: 800;
+    }
+
+    .identity-node strong {
+      display: block;
+      margin-bottom: 3px;
+      color: #6b3d06;
+      font-size: 17px;
+    }
+
+    .identity-node small {
+      color: #805d2a;
+      font-size: 13px;
+    }
+
+    .crossed-secret {
+      position: relative;
+      padding: 22px;
+      border: 2px solid #eea8b4;
+      border-radius: 8px;
+      background: #fff5f6;
+      color: #881337;
+      text-align: center;
+      font-size: 19px;
+      font-weight: 800;
+    }
+
+    .crossed-secret::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 8%;
+      width: 84%;
+      height: 3px;
+      transform: rotate(-12deg);
+      background: var(--rose);
+    }
+
+    .swimlanes {
+      display: grid;
+      gap: 16px;
+    }
+
+    .lane {
+      display: grid;
+      grid-template-columns: 200px repeat(4, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .lane-label,
+    .flow-step {
+      display: grid;
+      place-items: center;
+      min-height: 74px;
+      padding: 12px;
+      border-radius: 7px;
+      text-align: center;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .lane-label {
+      background: var(--lane-color);
+      color: white;
+      font-weight: 800;
+    }
+
+    .flow-step {
+      position: relative;
+      border: 1px solid var(--line);
+      background: white;
+      color: #274058;
+      font-weight: 700;
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "›";
+      position: absolute;
+      top: 50%;
+      right: -9px;
+      transform: translateY(-54%);
+      color: #8191a2;
+      font-size: 27px;
+      z-index: 2;
+    }
+
+    .token-table,
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+
+    .token-table th,
+    .token-table td,
+    .compare-table th,
+    .compare-table td {
+      padding: 13px 15px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .token-table th,
+    .compare-table th {
+      background: #eaf2f8;
+      color: #244158;
+      font-size: 15px;
+    }
+
+    .token-table td,
+    .compare-table td {
+      color: #31475c;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .shield-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .shield {
+      padding: 24px;
+      border: 2px solid var(--shield-color);
+      border-radius: 8px;
+      background: white;
+    }
+
+    .shield-mark {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 52px;
+      margin-bottom: 16px;
+      clip-path: polygon(50% 0, 94% 17%, 84% 75%, 50% 100%, 16% 75%, 6% 17%);
+      background: var(--shield-color);
+      color: white;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .shield p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    .lifecycle {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .life-step {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 96px;
+      padding: 14px;
+      border: 2px solid var(--accent, var(--azure));
+      border-radius: 50%;
+      background: white;
+      color: #244158;
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .life-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -22px;
+      color: #718398;
+      font-size: 24px;
+    }
+
+    .failure-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .failure {
+      padding: 15px;
+      border-left: 4px solid var(--rose);
+      background: white;
+      color: #5c2735;
+      font-size: 15px;
+      font-weight: 700;
+      box-shadow: 0 6px 18px rgb(19 42 66 / 7%);
+    }
+
+    .demo-timeline {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+    }
+
+    .demo-step {
+      position: relative;
+      min-height: 145px;
+      padding: 18px 12px 12px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--teal);
+      border-radius: 7px;
+      background: white;
+      color: #294158;
+      text-align: center;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .demo-step b {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      margin: 0 auto 12px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: white;
+      font-size: 17px;
+    }
+
+    .terminal {
+      padding: 18px;
+      border-radius: 7px;
+      background: #162536;
+      color: #dff5e8;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .maturity {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+    }
+
+    .maturity-col {
+      padding: 24px;
+      border-radius: 8px;
+      background: white;
+      box-shadow: 0 10px 28px rgb(19 42 66 / 9%);
+    }
+
+    .check-list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .check-list li {
+      position: relative;
+      padding-left: 29px;
+      color: #30475d;
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .check-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--green);
+      font-weight: 900;
+    }
+
+    .roadmap li::before {
+      content: "→";
+      color: var(--azure);
+    }
+
+    .slide-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: #617287;
+      font-size: 13px;
+    }
+
+    .brand {
+      font-weight: 800;
+    }
+
+    .notes {
+      display: none;
+    }
+
+    .controls {
+      position: fixed;
+      right: 20px;
+      bottom: 18px;
+      z-index: 20;
+      display: flex;
+      gap: 8px;
+    }
+
+    .controls button {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border: 1px solid #b9c7d4;
+      border-radius: 7px;
+      background: rgb(255 255 255 / 92%);
+      color: #294158;
+      cursor: pointer;
+      box-shadow: 0 8px 22px rgb(19 42 66 / 14%);
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .controls button:hover {
+      border-color: var(--azure);
+      color: var(--azure);
+    }
+
+    .progress {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      z-index: 30;
+      width: 100%;
+      height: 5px;
+      background: #dce6ee;
+    }
+
+    .progress span {
+      display: block;
+      width: 11.111%;
+      height: 100%;
+      background: var(--azure);
+      transition: width 180ms ease;
+    }
+
+    .notes-panel {
+      position: fixed;
+      z-index: 40;
+      top: 18px;
+      right: 18px;
+      bottom: 72px;
+      display: none;
+      width: min(520px, calc(100vw - 36px));
+      padding: 22px;
+      overflow: auto;
+      border: 1px solid #bac8d5;
+      border-radius: 8px;
+      background: rgb(255 255 255 / 98%);
+      box-shadow: var(--shadow);
+    }
+
+    .notes-panel.open {
+      display: block;
+    }
+
+    .notes-panel h3 {
+      color: var(--azure-dark);
+    }
+
+    .notes-panel p,
+    .notes-panel li {
+      color: #334a60;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .notes-panel code {
+      color: #7c2d12;
+    }
+
+    .opening {
+      --accent: var(--azure);
+    }
+
+    .opening .slide-body {
+      grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+    }
+
+    .opening h1 {
+      max-width: 900px;
+    }
+
+    .title-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .title-meta span {
+      padding: 9px 13px;
+      border: 1px solid #b9d5e8;
+      border-radius: 6px;
+      background: white;
+      color: #28516d;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    @media (max-width: 900px) {
+      .slide {
+        padding: 26px 28px 28px 38px;
+        overflow-y: auto;
+      }
+
+      .slide-body,
+      .two-col,
+      .wide-left,
+      .opening .slide-body {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+
+      .object-grid,
+      .shield-grid,
+      .maturity {
+        grid-template-columns: 1fr;
+      }
+
+      .architecture {
+        grid-template-columns: 1fr;
+      }
+
+      .lane {
+        grid-template-columns: 1fr;
+      }
+
+      .lifecycle,
+      .failure-strip,
+      .demo-timeline {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media print {
+      html,
+      body {
+        overflow: visible;
+        background: white;
+      }
+
+      .deck {
+        height: auto;
+      }
+
+      .slide,
+      .slide.active {
+        position: relative;
+        display: grid;
+        width: 13.333in;
+        height: 7.5in;
+        page-break-after: always;
+        break-after: page;
+      }
+
+      .controls,
+      .progress,
+      .notes-panel {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" id="deck">
+    <section class="slide opening active" data-title="Title">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">DevOps Technical Presentation</p>
+          <h1>Azure Key Vault With AKS Workload Identity</h1>
+        </div>
+        <span class="slide-number">01 / 09</span>
+      </header>
+      <div class="slide-body">
+        <div>
+          <p class="lead">
+            Securely delivering Cosmos DB credentials and JWT signing material to an AKS workload without storing an Azure client secret in Kubernetes.
+          </p>
+          <div class="statement">
+            The challenge is not only storing a secret. It is securely delivering, authorizing, rotating, and auditing it.
+          </div>
+          <div class="title-meta">
+            <span>Azure Key Vault</span>
+            <span>Private AKS</span>
+            <span>UAMI Federation</span>
+            <span>Cosmos DB</span>
+            <span>Next.js + FastAPI</span>
+          </div>
+        </div>
+        <div class="risk-chain">
+          <div class="risk-item"><span>!</span>Secret committed to source or Git history</div>
+          <div class="risk-item"><span>!</span>Secret copied into a container image</div>
+          <div class="risk-item"><span>!</span>Secret exposed in a Kubernetes manifest</div>
+          <div class="risk-item"><span>!</span>Long-lived client secret inside the cluster</div>
+        </div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Azure Key Vault Architecture</span>
+        <span>Use arrow keys to navigate · Press N for speaker notes</span>
+      </footer>
+      <div class="notes">
+        <h3>Opening script</h3>
+        <p>Every production application needs sensitive configuration. The easy part is creating a password or key. The difficult part is ensuring that it does not leak into source code, container images, Kubernetes manifests, terminal history, or logs, while still making it available to the correct workload at runtime.</p>
+        <p>Ask the audience: if our application needs a database key, where should that key live, and how should the running pod obtain it?</p>
+        <p>Explain that removing a secret from the latest Git commit does not remove it from history. Container layers may retain copied values. Manifests are often copied into reviews, tickets, and CI logs.</p>
+        <p>A complete secret lifecycle includes creation, storage, distribution, consumption, rotation, revocation, audit, and recovery. A secure solution must control the lifecycle, not merely provide an encrypted storage location.</p>
+        <p>Transition: Azure Key Vault is the storage and policy center, but its value depends on identity, authorization, networking, and application integration.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#d97706" data-title="Key Vault fundamentals">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Core service</p>
+          <h2>Azure Key Vault Fundamentals</h2>
+        </div>
+        <span class="slide-number">02 / 09</span>
+      </header>
+      <div class="slide-body stack">
+        <div class="object-grid">
+          <article class="object-card" style="--accent:#d97706">
+            <strong>Secrets</strong>
+            <p>Passwords, connection strings, API keys and signing material retrieved as opaque values.</p>
+          </article>
+          <article class="object-card" style="--accent:#0078d4">
+            <strong>Keys</strong>
+            <p>Cryptographic objects used for signing, encryption and key wrapping without exporting private material.</p>
+          </article>
+          <article class="object-card" style="--accent:#008c95">
+            <strong>Certificates</strong>
+            <p>TLS certificate material and certificate lifecycle management.</p>
+          </article>
+        </div>
+        <div class="two-col" style="display:grid; gap:28px">
+          <div>
+            <h3>Implemented secrets</h3>
+            <div class="secret-list">
+              <div class="secret code">cosmos-endpoint</div>
+              <div class="secret code">cosmos-key</div>
+              <div class="secret code">auth-jwt-secret</div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Two decisions on every request</h3>
+            <p><strong>Authentication:</strong> Who is calling?</p>
+            <p><strong>Authorization:</strong> What may that identity do?</p>
+            <p style="margin-bottom:0"><strong>Runtime role:</strong> Key Vault Secrets User</p>
+          </div>
+        </div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Centralized sensitive material</span>
+        <span>Key Vault is not the application database or user identity provider</span>
+      </footer>
+      <div class="notes">
+        <h3>Speaker notes</h3>
+        <p>Explain the distinction between secrets, keys, and certificates. This implementation uses secrets only.</p>
+        <p><code>cosmos-key</code> and <code>auth-jwt-secret</code> are highly sensitive. The Cosmos endpoint is less sensitive, but is stored in Key Vault here to demonstrate centralized configuration retrieval.</p>
+        <p>Key Vault does not authenticate human users, expose the web app, provide application DNS, replace the database, or automatically rotate every dependent credential.</p>
+        <p>Explain Azure RBAC: the deployment user may need Key Vault Secrets Officer to create values, while the application UAMI only needs Key Vault Secrets User. Contributor or Key Vault Contributor does not automatically provide secret-value access.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#0078d4" data-title="Architecture">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Implemented solution</p>
+          <h2>End-To-End Architecture</h2>
+        </div>
+        <span class="slide-number">03 / 09</span>
+      </header>
+      <div class="slide-body">
+        <div class="architecture">
+          <img
+            class="architecture-export"
+            src="../c__Users_307373_Desktop_KeyVault-demo_docs_key-vault-architecture.excalidraw.svg"
+            alt="End-to-end Azure Key Vault and AKS architecture, including application traffic, workload identity, private endpoints, Key Vault and Cosmos DB connections"
+          >
+          <svg hidden class="architecture-svg" viewBox="0 0 1400 650" role="img" aria-label="Connected architecture diagram for the Key Vault AKS application">
+            <defs>
+              <filter id="nodeShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#173752" flood-opacity=".10"/>
+              </filter>
+              <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1d4ed8"/></marker>
+              <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#d97706"/></marker>
+              <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#0e7490"/></marker>
+              <marker id="arrowRose" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#be123c"/></marker>
+              <marker id="arrowCyan" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#0369a1"/></marker>
+            </defs>
+
+            <rect x="15" y="40" width="200" height="565" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="7 5"/>
+            <text x="35" y="68" class="zone-title">External services</text>
+
+            <rect x="235" y="20" width="1145" height="600" rx="12" class="boundary"/>
+            <text x="257" y="48" class="zone-title">Azure subscription / rg-aks-keyvault-demo</text>
+
+            <rect x="255" y="65" width="650" height="530" rx="10" fill="#f1fbf8" stroke="#16826c" stroke-width="2"/>
+            <text x="277" y="91" class="zone-title" fill="#126452">VNet: vnet-aks-keyvault-demo</text>
+
+            <rect x="275" y="110" width="390" height="445" rx="9" class="sub-boundary"/>
+            <text x="295" y="136" class="zone-title" fill="#18794e">snet-aks-nodes / private AKS</text>
+            <text x="295" y="154" class="zone-subtitle">Namespace: keyvault-demo</text>
+
+            <rect x="685" y="110" width="195" height="445" rx="9" fill="#f2fbfd" stroke="#0e7490" stroke-width="2" stroke-dasharray="7 5"/>
+            <text x="704" y="136" class="zone-title" fill="#155e75">Private endpoints</text>
+            <text x="704" y="154" class="zone-subtitle">snet-private-endpoints</text>
+
+            <rect x="930" y="65" width="205" height="260" rx="9" class="identity-boundary"/>
+            <text x="950" y="91" class="zone-title" fill="#92400e">Entra identity plane</text>
+
+            <rect class="node" x="40" y="105" width="150" height="72" rx="8" fill="#dbeafe" stroke="#1d4ed8"/>
+            <text x="115" y="133" class="node-title">Application user</text>
+            <text x="115" y="154" class="node-detail">Browser / future DNS</text>
+
+            <rect class="node" x="40" y="462" width="150" height="92" rx="8" fill="#e0f2fe" stroke="#0369a1"/>
+            <text x="115" y="488" class="node-title">Docker Hub</text>
+            <text x="115" y="509" class="node-detail">elzabeth03/keyvault-demo</text>
+            <text x="115" y="527" class="node-detail">tag: 1.0.0</text>
+
+            <rect class="node" x="300" y="180" width="145" height="62" rx="8" fill="#dbeafe" stroke="#1d4ed8"/>
+            <text x="372.5" y="205" class="node-title">Public IP</text>
+            <text x="372.5" y="224" class="node-detail">Azure Load Balancer</text>
+
+            <rect class="node" x="485" y="180" width="145" height="62" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+            <text x="557.5" y="205" class="node-title">Kubernetes Service</text>
+            <text x="557.5" y="224" class="node-detail">port 80 to 3000</text>
+
+            <rect class="node" x="350" y="285" width="225" height="64" rx="8" fill="#fef3c7" stroke="#b45309"/>
+            <text x="462.5" y="310" class="node-title">ServiceAccount</text>
+            <text x="462.5" y="330" class="node-detail">keyvault-demo-sa / UAMI client ID</text>
+
+            <rect class="node" x="330" y="405" width="270" height="108" rx="8" fill="#ccfbf1" stroke="#008c95"/>
+            <text x="465" y="430" class="node-title">Deployment: 2 pod replicas</text>
+            <text x="465" y="452" class="node-detail">Next.js :3000 to FastAPI :8000</text>
+            <text x="465" y="472" class="node-detail">DefaultAzureCredential</text>
+            <text x="465" y="492" class="node-detail">azure.workload.identity/use: true</text>
+
+            <rect class="node" x="707" y="178" width="151" height="62" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+            <text x="782.5" y="202" class="node-title">Private DNS</text>
+            <text x="782.5" y="222" class="node-detail">linked to AKS VNet</text>
+
+            <rect class="node" x="707" y="285" width="151" height="70" rx="8" fill="#cffafe" stroke="#0e7490"/>
+            <text x="782.5" y="312" class="node-title">Key Vault</text>
+            <text x="782.5" y="333" class="node-detail">private endpoint</text>
+
+            <rect class="node" x="707" y="430" width="151" height="70" rx="8" fill="#cffafe" stroke="#0e7490"/>
+            <text x="782.5" y="457" class="node-title">Cosmos DB</text>
+            <text x="782.5" y="478" class="node-detail">private endpoint</text>
+
+            <rect class="node" x="952" y="112" width="161" height="52" rx="8" fill="#fef3c7" stroke="#d97706"/>
+            <text x="1032.5" y="143" class="node-title">AKS OIDC issuer</text>
+
+            <rect class="node" x="952" y="190" width="161" height="58" rx="8" fill="#fef3c7" stroke="#d97706"/>
+            <text x="1032.5" y="214" class="node-title">Federated credential</text>
+            <text x="1032.5" y="233" class="node-detail">issuer + subject + audience</text>
+
+            <rect class="node" x="952" y="274" width="161" height="52" rx="8" fill="#fef3c7" stroke="#d97706"/>
+            <text x="1032.5" y="305" class="node-title">User-assigned identity</text>
+
+            <rect class="node" x="1160" y="360" width="195" height="112" rx="8" fill="#fef9c3" stroke="#a16207"/>
+            <text x="1257.5" y="386" class="node-title">Azure Key Vault</text>
+            <text x="1257.5" y="407" class="node-detail">kv-demo-0001</text>
+            <text x="1257.5" y="426" class="node-detail">cosmos-endpoint / cosmos-key</text>
+            <text x="1257.5" y="445" class="node-detail">auth-jwt-secret</text>
+
+            <rect class="node" x="1160" y="505" width="195" height="96" rx="8" fill="#ffe4e6" stroke="#be123c"/>
+            <text x="1257.5" y="531" class="node-title">Cosmos DB for NoSQL</text>
+            <text x="1257.5" y="552" class="node-detail">database: demoapp</text>
+            <text x="1257.5" y="571" class="node-detail">users (/email) / notes (/owner)</text>
+
+            <path class="arrow traffic" d="M190 141 H242 V211 H300"/>
+            <text x="247" y="129" class="flow-label">HTTP / DNS</text>
+            <path class="arrow traffic" d="M445 211 H485"/>
+            <text x="465" y="199" class="flow-label">route</text>
+            <path class="arrow traffic" d="M557.5 242 V380 H520 V405"/>
+            <text x="590" y="322" class="flow-label">service traffic</text>
+
+            <path class="arrow supply-flow" d="M190 508 H262 V474 H330"/>
+            <text x="257" y="494" class="flow-label">image pull</text>
+
+            <path class="arrow identity-flow" d="M462.5 349 V405"/>
+            <text x="510" y="379" class="flow-label">pod identity</text>
+
+            <path class="arrow token-flow" d="M600 430 H650 V138 H952"/>
+            <text x="792" y="126" class="flow-label">projected ServiceAccount token</text>
+            <path class="arrow identity-flow" d="M1032.5 164 V190"/>
+            <path class="arrow identity-flow" d="M1032.5 248 V274"/>
+            <path class="arrow identity-flow" d="M1113 300 H1135 V390 H1160"/>
+            <text x="1148" y="336" class="flow-label">Azure RBAC</text>
+
+            <path class="arrow private-flow" d="M600 438 H665 V320 H707"/>
+            <text x="650" y="304" class="flow-label">HTTPS get secret</text>
+            <path class="arrow private-flow" d="M858 320 H1115 V407 H1160"/>
+            <text x="1000" y="307" class="flow-label">private endpoint path</text>
+
+            <path class="arrow data-flow" d="M600 470 H665 V465 H707"/>
+            <text x="652" y="492" class="flow-label">users + notes</text>
+            <path class="arrow data-flow" d="M858 465 H1115 V553 H1160"/>
+            <text x="1000" y="452" class="flow-label">Cosmos HTTPS</text>
+
+            <path d="M782.5 240 V285" fill="none" stroke="#64748b" stroke-width="1.8" stroke-dasharray="5 4"/>
+            <path d="M782.5 240 V430" fill="none" stroke="#64748b" stroke-width="1.8" stroke-dasharray="5 4"/>
+          </svg>
+          <div hidden class="architecture-legend" aria-hidden="true">
+            <span><i class="legend-line" style="--legend-color:#1d4ed8"></i>User traffic</span>
+            <span><i class="legend-line" style="--legend-color:#0369a1"></i>Image supply</span>
+            <span><i class="legend-line" style="--legend-color:#d97706"></i>Federation / RBAC</span>
+            <span><i class="legend-line" style="--legend-color:#0e7490"></i>Private secret path</span>
+            <span><i class="legend-line" style="--legend-color:#be123c"></i>Application data</span>
+          </div>
+        </div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Runtime, identity, secrets and data</span>
+        <span>Image pull and Key Vault access are separate flows</span>
+      </footer>
+      <div class="notes">
+        <h3>Architecture walkthrough</h3>
+        <p>User traffic reaches a public IP and Azure Load Balancer. The Kubernetes Service maps port 80 to Next.js on pod port 3000. Next.js proxies API requests to FastAPI on localhost port 8000.</p>
+        <p>AKS pulls the application image from Docker Hub. That happens before the application starts and is independent from Key Vault access.</p>
+        <p>The pod uses namespace <code>keyvault-demo</code>, ServiceAccount <code>keyvault-demo-sa</code>, and two replicas. Workload Identity connects the ServiceAccount to a UAMI.</p>
+        <p>Key Vault supplies Cosmos credentials and JWT signing material. Cosmos database <code>demoapp</code> contains <code>users</code> partitioned by email and <code>notes</code> partitioned by owner.</p>
+        <p>Key Vault and Cosmos DB are managed services outside the VNet boundary. Their private endpoint network interfaces are inside the VNet, and private DNS resolves their normal hostnames to private IP addresses.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#d97706" data-title="Workload identity">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Passwordless Azure authentication</p>
+          <h2>How The Pod Authenticates Without A Client Secret</h2>
+        </div>
+        <span class="slide-number">04 / 09</span>
+      </header>
+      <div class="slide-body two-col">
+        <div class="identity-chain">
+          <div class="identity-node"><span class="identity-index">1</span><div><strong>AKS Pod</strong><small>Runs as keyvault-demo-sa</small></div></div>
+          <div class="identity-node"><span class="identity-index">2</span><div><strong>Projected ServiceAccount Token</strong><small>Kubernetes-issued workload identity proof</small></div></div>
+          <div class="identity-node"><span class="identity-index">3</span><div><strong>AKS OIDC Issuer</strong><small>Allows Entra ID to validate the cluster token</small></div></div>
+          <div class="identity-node"><span class="identity-index">4</span><div><strong>Federated Credential</strong><small>Matches issuer, subject and audience</small></div></div>
+          <div class="identity-node"><span class="identity-index">5</span><div><strong>User-Assigned Managed Identity</strong><small>Receives the Azure access token</small></div></div>
+        </div>
+        <div class="stack">
+          <div class="crossed-secret code">AZURE_CLIENT_SECRET</div>
+          <div class="panel">
+            <h3>Federation trust</h3>
+            <p class="code" style="font-size:14px">system:serviceaccount:<br>keyvault-demo:keyvault-demo-sa</p>
+            <p class="code" style="font-size:14px;margin-bottom:0">api://AzureADTokenExchange</p>
+          </div>
+          <div class="statement">FastAPI uses <code>DefaultAzureCredential()</code> to select Workload Identity automatically.</div>
+        </div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">No long-lived Azure credential in Kubernetes</span>
+        <span>ServiceAccount identity ≠ Azure identity</span>
+      </footer>
+      <div class="notes">
+        <h3>Speaker notes</h3>
+        <p>The ServiceAccount is the Kubernetes identity. Its annotation contains the UAMI client ID. The deployment pod label enables Workload Identity mutation.</p>
+        <p>The OIDC issuer lets Entra ID validate tokens created by this cluster. The federated credential trusts one exact issuer, ServiceAccount subject, and audience. Changing the namespace or ServiceAccount changes the subject and breaks federation.</p>
+        <p>The UAMI is the Azure identity. Azure role assignments use its principal or object ID, while the ServiceAccount annotation references its client ID.</p>
+        <p><code>DefaultAzureCredential()</code> detects the Workload Identity environment and exchanges the projected token for an Azure access token.</p>
+        <p>Compare this to a service-principal client secret: federation avoids a long-lived secret, manual rotation, and expiry monitoring.</p>
+        <p>UAMI is appropriate for AKS-to-Azure access. App Registration remains appropriate for Entra user login, redirect URIs, OAuth scopes, Graph permissions, and external application identities.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#be123c" data-title="Data flow">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Runtime request paths</p>
+          <h2>Secret Retrieval And Application Data Flow</h2>
+        </div>
+        <span class="slide-number">05 / 09</span>
+      </header>
+      <div class="slide-body stack">
+        <div class="swimlanes">
+          <div class="lane" style="--lane-color:#d97706">
+            <div class="lane-label">Azure workload identity</div>
+            <div class="flow-step">ServiceAccount token</div>
+            <div class="flow-step">Entra token exchange</div>
+            <div class="flow-step">UAMI access token</div>
+            <div class="flow-step">Key Vault secret read</div>
+          </div>
+          <div class="lane" style="--lane-color:#be123c">
+            <div class="lane-label">Application user authentication</div>
+            <div class="flow-step">Register or sign in</div>
+            <div class="flow-step">Password hash in users</div>
+            <div class="flow-step">JWT signed by FastAPI</div>
+            <div class="flow-step">Owner-scoped notes</div>
+          </div>
+        </div>
+        <table class="token-table">
+          <thead><tr><th>Security artifact</th><th>Purpose</th><th>Used by</th></tr></thead>
+          <tbody>
+            <tr><td>Projected ServiceAccount token</td><td>Federate the pod to Entra ID</td><td>Azure Identity SDK</td></tr>
+            <tr><td>Azure access token</td><td>Authorize the UAMI to call Key Vault</td><td>SecretClient</td></tr>
+            <tr><td>Application JWT</td><td>Authenticate a human user to FastAPI</td><td>Browser and note API</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Three artifacts, three different trust boundaries</span>
+        <span>Cosmos: users /email · notes /owner</span>
+      </footer>
+      <div class="notes">
+        <h3>Speaker notes</h3>
+        <p>This slide separates Azure workload authentication from human application authentication.</p>
+        <p>Registration: validate the user input, salt and hash the password with PBKDF2, store the user in the Cosmos <code>users</code> container, retrieve <code>auth-jwt-secret</code>, and sign a JWT.</p>
+        <p>Sign-in: find the user through the email partition, verify the password hash, then issue a JWT.</p>
+        <p>Authenticated note requests send <code>Authorization: Bearer &lt;JWT&gt;</code>. FastAPI verifies the signature, identifies the user, and writes notes under that owner.</p>
+        <p>The pod separately calls Key Vault with an Azure access token representing the UAMI. Key Vault checks the Key Vault Secrets User role before returning a value.</p>
+        <p>Production limitation: the application uses the powerful Cosmos account key. A stronger design uses UAMI plus Cosmos DB data-plane RBAC and removes the account key entirely.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#008c95" data-title="Kubernetes and networking">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Defense in depth</p>
+          <h2>Kubernetes And Network Security</h2>
+        </div>
+        <span class="slide-number">06 / 09</span>
+      </header>
+      <div class="slide-body stack">
+        <div class="shield-grid">
+          <article class="shield" style="--shield-color:#d97706">
+            <div class="shield-mark">I</div>
+            <h3>Identity boundary</h3>
+            <p>ServiceAccount federation, UAMI and Key Vault RBAC determine which workload may read secret values.</p>
+          </article>
+          <article class="shield" style="--shield-color:#008c95">
+            <div class="shield-mark">N</div>
+            <h3>Network boundary</h3>
+            <p>Private endpoints and private DNS determine the approved path from AKS to Key Vault and Cosmos DB.</p>
+          </article>
+        </div>
+        <div class="two-col" style="display:grid;gap:22px">
+          <div class="panel">
+            <h3>Kubernetes stores references, not values</h3>
+            <p class="code">KEY_VAULT_URL<br>COSMOS_KEY_SECRET_NAME<br>JWT_SECRET_NAME<br>USERS_CONTAINER_NAME</p>
+          </div>
+          <div class="panel">
+            <h3>Private DNS zones</h3>
+            <p class="code">privatelink.vaultcore.azure.net<br>privatelink.documents.azure.com</p>
+          </div>
+        </div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Identity controls who · networking controls where</span>
+        <span>Private AKS requires a connected kubectl management path</span>
+      </footer>
+      <div class="notes">
+        <h3>Speaker notes</h3>
+        <p>The manifest stores the Key Vault URL, secret names, database names and container names. It does not store the Cosmos key, JWT secret value or an Azure client secret.</p>
+        <p>Private endpoints create private network interfaces in the VNet. Private DNS resolves the normal Azure hostnames to the private IP addresses.</p>
+        <p>A common failure is creating a private endpoint without linking its private DNS zone to the AKS VNet. RBAC may be correct while the pod still receives DNS failures or timeouts.</p>
+        <p>The AKS API server may also be private. Regular Cloud Shell cannot necessarily reach it. kubectl must run from VNet-injected Cloud Shell, a connected VM, VPN/ExpressRoute, or another approved network.</p>
+        <p>Application DNS is separate. A future domain can point to the LoadBalancer or ingress IP. App Registration is not required for DNS, but may be needed later for Entra login redirect URIs.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#7c3aed" data-title="Operations">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Day-two security</p>
+          <h2>Secret Lifecycle, Operations And Failure Modes</h2>
+        </div>
+        <span class="slide-number">07 / 09</span>
+      </header>
+      <div class="slide-body stack">
+        <div class="lifecycle">
+          <div class="life-step">Version</div>
+          <div class="life-step">Rotate</div>
+          <div class="life-step">Reload</div>
+          <div class="life-step">Validate</div>
+          <div class="life-step">Revoke</div>
+        </div>
+        <div class="failure-strip">
+          <div class="failure">403 Forbidden<br><small>RBAC or wrong identity</small></div>
+          <div class="failure">Token exchange failure<br><small>Issuer, subject or audience</small></div>
+          <div class="failure">DNS timeout<br><small>Private DNS or endpoint</small></div>
+          <div class="failure">Secret not found<br><small>Name, state or vault mismatch</small></div>
+        </div>
+        <div class="statement">Production controls: soft delete, purge protection, diagnostic logs, alerts and tested rotation procedures.</div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Security continues after the first successful deployment</span>
+        <span>Never print secret values during troubleshooting</span>
+      </footer>
+      <div class="notes">
+        <h3>Speaker notes</h3>
+        <p>Each secret update creates a new version. The application requests by name and receives the current version.</p>
+        <p>This implementation caches some clients and values. Updating Key Vault does not guarantee that both replicas immediately reload the new value. Rotation must include a controlled rollout or refresh strategy.</p>
+        <p>Changing an HMAC JWT signing secret immediately invalidates old tokens. A mature design can support overlapping keys, key IDs, or delegate authentication to an identity provider.</p>
+        <p>Soft delete permits recovery during retention. Purge protection prevents permanent deletion until the retention period expires.</p>
+        <p>Enable diagnostic settings and send logs to Log Analytics or the approved destination. Alert on denied access, secret deletion, purge attempts, role changes and federated credential changes.</p>
+        <p>Troubleshoot in layers: pod state, ServiceAccount, label, federation, Azure token, RBAC, DNS, network, secret existence, then dependent service authentication.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#008c95" data-title="Demo">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Live validation</p>
+          <h2>Proving The Architecture Works</h2>
+        </div>
+        <span class="slide-number">08 / 09</span>
+      </header>
+      <div class="slide-body stack">
+        <div class="demo-timeline">
+          <div class="demo-step"><b>1</b>Show secret names and versions</div>
+          <div class="demo-step"><b>2</b>Show UAMI role assignment</div>
+          <div class="demo-step"><b>3</b>Show federated credential</div>
+          <div class="demo-step"><b>4</b>Show ServiceAccount and pod label</div>
+          <div class="demo-step"><b>5</b>Register and sign in</div>
+          <div class="demo-step"><b>6</b>Create a note and verify Cosmos</div>
+        </div>
+        <div class="terminal">kubectl get pods -n keyvault-demo
+kubectl rollout status deployment/keyvault-demo -n keyvault-demo
+kubectl logs deployment/keyvault-demo -n keyvault-demo
+
+az keyvault secret list --vault-name kv-demo-0001 \
+  --query "[].{name:name,enabled:attributes.enabled}" -o table</div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">Demonstrate metadata and behavior, never secret values</span>
+        <span>Keep screenshots ready as a fallback</span>
+      </footer>
+      <div class="notes">
+        <h3>Speaker notes</h3>
+        <p>Open Key Vault and show the RBAC model, three secret names, versions and enabled state. Do not reveal values.</p>
+        <p>Show the UAMI role assignment: application identity to Key Vault Secrets User at vault scope.</p>
+        <p>Show the federated credential values: AKS issuer, namespace, ServiceAccount and audience.</p>
+        <p>Show only the important manifest lines: serviceAccountName, Workload Identity label, UAMI client ID annotation and Key Vault URL.</p>
+        <p>Open the application, register, sign out, sign in and create a note. Explain that the application JWT is separate from Azure Workload Identity.</p>
+        <p>Open Cosmos Data Explorer and show the user in <code>users</code> and the note in <code>notes</code>.</p>
+        <p>Avoid changing live permissions or deleting secrets. Use a screenshot of a previous Forbidden error if you want to explain failure behavior.</p>
+      </div>
+    </section>
+
+    <section class="slide" style="--accent:#18794e" data-title="Roadmap">
+      <header class="slide-head">
+        <div>
+          <p class="kicker">Security maturity</p>
+          <h2>Current Implementation And Production Roadmap</h2>
+        </div>
+        <span class="slide-number">09 / 09</span>
+      </header>
+      <div class="slide-body stack">
+        <div class="maturity">
+          <article class="maturity-col">
+            <h3>Secure foundation implemented</h3>
+            <ul class="check-list">
+              <li>Key Vault secrets and Azure RBAC</li>
+              <li>UAMI plus federated Workload Identity</li>
+              <li>Private Key Vault and Cosmos paths</li>
+              <li>JWT-authenticated application</li>
+              <li>AKS deployment with two replicas</li>
+            </ul>
+          </article>
+          <article class="maturity-col">
+            <h3>Production evolution</h3>
+            <ul class="check-list roadmap">
+              <li>Cosmos DB managed-identity RBAC</li>
+              <li>TLS ingress, WAF and custom DNS</li>
+              <li>Automated secret and JWT key rotation</li>
+              <li>Diagnostics, alerts and Azure Policy</li>
+              <li>Entra ID user login and CI/CD controls</li>
+            </ul>
+          </article>
+        </div>
+        <div class="statement">
+          Key Vault is not a standalone security solution. It is the center of an identity, authorization, network, rotation and audit design.
+        </div>
+      </div>
+      <footer class="slide-foot">
+        <span class="brand">No secret in source · No Azure client secret in Kubernetes</span>
+        <span>Least privilege with an auditable control path</span>
+      </footer>
+      <div class="notes">
+        <h3>Closing script</h3>
+        <p>Summarize what the project proves: secrets are not hardcoded, the pod does not contain an Azure client secret, one workload identity receives least-privilege access, and private networking reduces service exposure.</p>
+        <p>Production improvements include Cosmos DB data-plane RBAC, TLS ingress, custom DNS, automated rotation, diagnostics, Azure Policy, separate vaults and identities per environment, pod security, network policies, immutable image digests and CI/CD approval.</p>
+        <p>Explain alternatives: the Secrets Store CSI Driver can mount Key Vault objects as files, and External Secrets Operator can synchronize external values into Kubernetes. Both introduce different operational and security tradeoffs.</p>
+        <p>Entra ID human login would use an App Registration with redirect URIs, OAuth/OIDC configuration, scopes and consent.</p>
+        <p>Close with: the strongest result is not merely encrypted storage. The workload proves who it is, receives only the access it needs, reaches the vault through an approved network path, and leaves an auditable control trail.</p>
+      </div>
+    </section>
+  </main>
+
+  <aside class="notes-panel" id="notesPanel" aria-live="polite"></aside>
+
+  <div class="controls" aria-label="Presentation controls">
+    <button id="prev" type="button" title="Previous slide (Left arrow)">‹</button>
+    <button id="notesToggle" type="button" title="Toggle speaker notes (N)">N</button>
+    <button id="fullscreen" type="button" title="Fullscreen (F)">⛶</button>
+    <button id="next" type="button" title="Next slide (Right arrow)">›</button>
+  </div>
+
+  <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const progressBar = document.getElementById("progressBar");
+    const notesPanel = document.getElementById("notesPanel");
+    let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.slice(1)) - 1 || 0));
+
+    function render() {
+      slides.forEach((slide, index) => slide.classList.toggle("active", index === current));
+      progressBar.style.width = `${((current + 1) / slides.length) * 100}%`;
+      location.hash = String(current + 1);
+      const source = slides[current].querySelector(".notes");
+      notesPanel.innerHTML = source ? source.innerHTML : "<p>No notes for this slide.</p>";
+      document.title = `${current + 1}/${slides.length} · ${slides[current].dataset.title}`;
+    }
+
+    function move(delta) {
+      current = Math.max(0, Math.min(slides.length - 1, current + delta));
+      render();
+    }
+
+    function toggleNotes() {
+      notesPanel.classList.toggle("open");
+    }
+
+    async function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    }
+
+    document.getElementById("prev").addEventListener("click", () => move(-1));
+    document.getElementById("next").addEventListener("click", () => move(1));
+    document.getElementById("notesToggle").addEventListener("click", toggleNotes);
+    document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+
+    document.addEventListener("keydown", (event) => {
+      if (["ArrowRight", "PageDown", " "].includes(event.key)) {
+        event.preventDefault();
+        move(1);
+      } else if (["ArrowLeft", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        move(-1);
+      } else if (event.key.toLowerCase() === "n") {
+        toggleNotes();
+      } else if (event.key.toLowerCase() === "f") {
+        toggleFullscreen();
+      } else if (event.key === "Home") {
+        current = 0;
+        render();
+      } else if (event.key === "End") {
+        current = slides.length - 1;
+        render();
+      } else if (event.key === "Escape") {
+        notesPanel.classList.remove("open");
+      }
+    });
+
+    window.addEventListener("hashchange", () => {
+      const requested = Number(location.hash.slice(1)) - 1;
+      if (Number.isInteger(requested) && requested >= 0 && requested < slides.length) {
+        current = requested;
+        render();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>
